@@ -1,0 +1,18 @@
+# ── Fine-tuning dependencies (used only by src/finetune/) ────────────────────
+# Install these separately when running train.py or generate_synthetic.py.
+# The main backend does NOT need these.
+#
+# Usage:
+#   pip install -r requirements.txt -r requirements-finetune.txt
+
+# Core ML
+torch>=2.2.0
+transformers>=4.40.0,<4.50.0
+peft>=0.10.0,<0.12.0
+trl>=0.8.6,<0.9.0
+datasets>=2.19.0,<3.0.0
+accelerate>=0.29.0,<0.35.0
+bitsandbytes>=0.43.0,<0.45.0
+
+# HuggingFace Hub (for downloading base model weights)
+huggingface-hub>=0.22.0

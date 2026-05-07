@@ -1,0 +1,42 @@
+# ─── NoseKnows fine-tuning image ─────────────────────────────────────────────
+# Includes CUDA-capable PyTorch, transformers, peft, trl.
+# Only used by the `finetune` Compose service — not the runtime backend.
+# ─────────────────────────────────────────────────────────────────────────────
+
+FROM python:3.11-slim AS builder
+
+WORKDIR /build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential git \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+COPY requirements.txt requirements-finetune.txt ./
+
+# Install CUDA-capable torch (sm_89 = Ada Lovelace / RTX 4060)
+RUN pip install --no-cache-dir --upgrade pip \
+ && pip install --no-cache-dir \
+    torch==2.2.2+cu121 \
+    --extra-index-url https://download.pytorch.org/whl/cu121 \
+ && pip install --no-cache-dir -r requirements.txt -r requirements-finetune.txt
+
+# ── Runtime ───────────────────────────────────────────────────────────────────
+FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 python3.11-distutils libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+COPY src/ ./src/
+
+RUN mkdir -p data models
+
+CMD ["python", "-m", "src.finetune.train"]

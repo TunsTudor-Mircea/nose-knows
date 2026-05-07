@@ -1,0 +1,144 @@
+services:
+
+  # ── Ollama inference server ───────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: nosknows-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # ── One-shot model pull (run once before docker compose up) ───────────────
+  # Usage: docker compose run --rm model-init
+  model-init:
+    image: ollama/ollama:latest
+    container_name: nosknows-model-init
+    profiles: ["setup"]
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["ollama", "pull"]
+    command: "${OLLAMA_MODEL:-gemma2:2b}"
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  # ── Python backend (FastAPI + agent + ChromaDB) ───────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: nosknows-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma2:2b}
+      OLLAMA_BASE_URL: http://ollama:11434
+      CHROMA_DB_PATH: /app/chroma_db
+      DATASET_PATH: /app/dataset/fra_cleaned.csv
+      CHUNKS_PATH: /app/data/chunks.jsonl
+      FEEDBACK_LOG_PATH: /app/data/feedback_log.jsonl
+      RETRIEVER_TOP_K: ${RETRIEVER_TOP_K:-5}
+      AGENT_MAX_ITERATIONS: ${AGENT_MAX_ITERATIONS:-8}
+    volumes:
+      - ./dataset:/app/dataset:ro
+      - ./data:/app/data
+      - chroma-data:/app/chroma_db
+    depends_on:
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ── Next.js frontend ──────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    container_name: nosknows-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  # ── One-shot data pipeline + ChromaDB indexing ────────────────────────────
+  # Usage: docker compose run --rm ingest
+  ingest:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: nosknows-ingest
+    profiles: ["tools"]
+    command: >
+      sh -c "python -m src.data_pipeline &&
+             python -m src.rag.build_index"
+    environment:
+      CHROMA_DB_PATH: /app/chroma_db
+      DATASET_PATH: /app/dataset/fra_cleaned.csv
+      CHUNKS_PATH: /app/data/chunks.jsonl
+    volumes:
+      - ./dataset:/app/dataset:ro
+      - ./data:/app/data
+      - chroma-data:/app/chroma_db
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # ── One-shot fine-tuning runner ───────────────────────────────────────────
+  # Usage: docker compose run --rm finetune
+  #        docker compose run --rm finetune python -m src.finetune.train --max-samples 50
+  finetune:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.finetune
+    container_name: nosknows-finetune
+    profiles: ["tools"]
+    command: python -m src.finetune.train
+    environment:
+      SLM_MODEL_ID: ${SLM_MODEL_ID:-google/gemma-2-2b-it}
+      HUGGINGFACE_TOKEN: ${HUGGINGFACE_TOKEN:-}
+      CHUNKS_PATH: /app/data/chunks.jsonl
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - hf-cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  chroma-data:
+  ollama-data:
+  hf-cache:

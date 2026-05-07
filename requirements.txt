@@ -1,0 +1,32 @@
+# ── Backend runtime (FastAPI + LangChain + ChromaDB + Ollama client) ──────────
+# No torch/transformers here — inference is offloaded to the Ollama service.
+# For fine-tuning deps see requirements-finetune.txt
+
+# LangChain — exact pins; 1.x removed AgentExecutor
+langchain==0.2.16
+langchain-community==0.2.16
+langchain-core==0.2.43
+
+# Vector DB & Embeddings
+# Pinned to 0.4.x — uses pure Python/DuckDB backend, avoids 1.x Rust binding
+# issues on Windows Docker bind mounts.
+chromadb==0.4.24
+sentence-transformers>=2.7.0,<4.0.0
+
+# Data
+pandas>=2.2.0,<3.0.0
+numpy>=1.26.0,<2.0.0
+
+# API
+fastapi>=0.111.0,<1.0.0
+uvicorn[standard]>=0.29.0,<1.0.0
+pydantic>=2.7.0,<3.0.0
+python-multipart>=0.0.9
+
+# Safety / Evaluation
+detoxify>=0.5.2
+
+# Utils
+python-dotenv>=1.0.1
+tqdm>=4.66.0
+httpx>=0.27.0

@@ -1,66 +1,230 @@
-# 👃 NoseKnows
+# NoseKnows — AI Fragrance Consultant
 
-**Team:** CTRL+Z
+An LLM/SLM-based fragrance recommendation agent that maps natural-language scent descriptions to real perfumes using HyDE-powered RAG, a fine-tuned SLM, and an agentic tool pipeline.
 
-**Members:**
-Zaharie Nikolass-Rafael, Tuns Tudor-Mircea, Turcu Alexia-Cristiana, Paraschiv Tudor-Costin, Bogdan Ana, Ravas Adrian-Georgel
-
----
-
-## Overview
-
-NoseKnows is an AI-powered conversational fragrance recommendation system that translates natural language scent descriptions into structured perfume characteristics. Rather than browsing by note or brand, users describe a mood, occasion, or feeling — and the system reasons over a structured fragrance database to surface relevant recommendations.
+**Team CTRL+Z** · [GitHub](https://github.com/TunsTudor-Mircea/nose-knows)
 
 ---
 
 ## Architecture
 
-The system follows an **agent architecture** in which a central fine-tuned SLM orchestrates a set of tools and makes decisions dynamically at each step.
-
-### Dataset
-
-- **Primary:** [Fragrantica Fragrance Dataset](https://www.kaggle.com/datasets/olgagmiufana1/fragrantica-com-fragrance-dataset) — structured perfume records with top, heart, and base notes, accords, and community ratings.
-- **Synthetic:** LLM-generated (input, reasoning, output) triples derived from the Fragrantica notes, used for fine-tuning the model to associate subjective language with olfactory profiles.
-
-### Chunking Strategy
-
-Each perfume is stored as a single atomic chunk containing its name, brand, and all note layers. This avoids cross-chunk reasoning at retrieval time and keeps embedding quality high.
-
-### Vector Database
-
-**ChromaDB** — chosen for its embedded/local mode, native Python integration, metadata filtering support, and open-source licensing.
-
-### Models
-
-| Role | Model |
-|---|---|
-| Core SLM (fine-tuned) | TBD |
-| Embeddings | TBD |
-| Reward Model (RLHF) | Trained on collected user preference pairs |
-
-### RAG Strategy
-
-Primary strategy is **HyDE (Hypothetical Document Embeddings)** — the agent generates a hypothetical structured note description from the user query, embeds it, and retrieves the top-k most similar perfumes from ChromaDB.
-
-### Agentic Pipeline
-
-The agent has access to the following tools and invokes them conditionally based on query context:
-
-1. **Intent Analysis** — classifies the query type to determine the tool execution path.
-2. **HyDE Generator** *(conditional)* — translates subjective/metaphorical queries into a hypothetical fragrance profile. Skipped for explicit note queries.
-3. **Fragrance Retriever** — queries ChromaDB; retries with a reformulated query if confidence is below threshold.
-5. **Recommendation Generator** — synthesises retrieved records and user intent into a final response.
-6. **Toxicity / Hallucination Guard** — validates output before delivery; triggers regeneration or a safe fallback if needed.
-7. **RLHF Feedback Loop** — user ratings are collected post-delivery and used to periodically update the SLM via DPO (Direct Preference Optimisation), steering future outputs toward higher-quality recommendations.
+```
+User query
+    │
+    ▼
+FastAPI backend (/chat)
+    │
+    ▼
+LangChain ReAct Agent
+    ├── classify_intent        → mood_based | occasion_based | note_based | follow_up
+    ├── generate_hyde_document → hypothetical structured note profile
+    ├── retrieve_fragrances    → ChromaDB (all-MiniLM-L6-v2 embeddings, ~24k perfumes)
+    ├── generate_recommendation→ final answer with note rationale
+    └── validate_response      → toxicity + hallucination guard
+    │
+    ▼
+Next.js UI (chat + perfume cards + thumbs feedback)
+    │
+    ▼
+/feedback → feedback_log.jsonl (RLHF seed data)
+```
 
 ---
 
-## Roadmap
+## Quick Start
 
-| Week | Milestone |
-|---|---|
-| 2 | Team formation & role assignment |
-| 4 | RFC — overview, motivation, goals |
-| 5–6 | Architecture document (this) |
-| 8–9 | Progress check & timeline update |
-| 11–12 | Final demo, documentation & source code |
+### Docker (recommended)
+
+```bash
+# 1. Copy env file (no secrets needed for basic use)
+cp .env.example .env
+
+# 2. Start Ollama, then pull the model (first time only)
+docker compose up ollama -d
+docker compose run --rm --profile setup model-init   # pulls gemma2:2b (~1.6 GB)
+
+# 3. First-time data ingestion
+docker compose run --rm --profile tools ingest
+
+# 4. Start everything
+docker compose up --build
+
+# Open http://localhost:3000
+```
+
+**GPU note:** Ollama automatically uses the RTX 4060 when the NVIDIA Container
+Toolkit is installed. Verify with `docker compose exec ollama ollama ps` — the
+model should show `100% GPU`.
+
+**Swap the model:**
+```bash
+# In .env — any model available at https://ollama.com/library
+OLLAMA_MODEL=llama3.2:3b
+```
+
+**One-shot fine-tuning inside Docker (uses CUDA):**
+```bash
+# Smoke-test (50 examples)
+docker compose run --rm --profile tools finetune python -m src.finetune.train --max-samples 50 --epochs 1
+
+# Full run
+docker compose run --rm --profile tools finetune
+```
+
+---
+
+### Manual (no Docker)
+
+### 1. Python environment
+
+```bash
+python -m venv .venv
+# Windows
+.venv\Scripts\activate
+# macOS / Linux
+source .venv/bin/activate
+
+pip install -r requirements.txt
+```
+
+### 2. Environment variables
+
+```bash
+cp .env.example .env
+# Edit .env — set HUGGINGFACE_TOKEN for gated models (Gemma / LLaMA)
+```
+
+### 3. Data pipeline (one-time)
+
+```bash
+# Step 1: clean CSV → chunks.jsonl
+python -m src.data_pipeline
+
+# Step 2: embed and index into ChromaDB (~5–15 min on first run)
+python -m src.rag.build_index
+```
+
+### 4. Start the backend
+
+```bash
+uvicorn backend.main:app --reload --port 8000
+```
+
+### 5. Start the frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+# Open http://localhost:3000
+```
+
+---
+
+## Fine-tuning (optional — improves recommendations)
+
+```bash
+# Generate synthetic training triples (overnight job, ~5 000 examples)
+python -m src.finetune.generate_synthetic
+
+# Smoke-test training on 50 examples first
+python -m src.finetune.train --max-samples 50 --epochs 1
+
+# Full fine-tuning run
+python -m src.finetune.train
+
+# Point the backend at the adapter
+# Set LORA_ADAPTER_PATH=models/nosknows-lora in .env
+```
+
+---
+
+## Models
+
+| Role | Default model | Alternative |
+|------|---------------|-------------|
+| SLM (backbone) | `google/gemma-2-2b-it` | `meta-llama/Llama-3.2-3B-Instruct` |
+| Embeddings | `all-MiniLM-L6-v2` | — |
+
+Both Gemma and LLaMA require a HuggingFace account with gated model access.  
+Run `huggingface-cli login` or set `HUGGINGFACE_TOKEN` in `.env`.
+
+---
+
+## Project layout
+
+```
+nose-knows/
+├── dataset/              Raw Fragrantica CSVs
+├── data/                 Generated: chunks.jsonl, synthetic_triples.jsonl, feedback_log.jsonl
+├── chroma_db/            ChromaDB vector store (generated, not committed)
+├── models/               LoRA adapter weights (generated, not committed)
+├── src/
+│   ├── data_pipeline.py  CSV → chunks.jsonl
+│   ├── model.py          SLM loader (HuggingFace + LoRA)
+│   ├── agent/
+│   │   └── agent.py      LangChain ReAct AgentExecutor
+│   ├── rag/
+│   │   ├── build_index.py  Embed + ingest into ChromaDB
+│   │   └── retriever.py    HyDERetriever
+│   ├── tools/
+│   │   ├── intent.py       classify_intent
+│   │   ├── hyde.py         generate_hyde_document
+│   │   ├── retriever.py    retrieve_fragrances
+│   │   ├── recommender.py  generate_recommendation
+│   │   └── guard.py        validate_response
+│   └── finetune/
+│       ├── generate_synthetic.py  Produce (input, reasoning, output) triples
+│       └── train.py               LoRA SFT with trl + peft
+├── backend/
+│   └── main.py           FastAPI: /health, /chat, /feedback
+└── frontend/             Next.js (TypeScript, Tailwind, App Router)
+    ├── app/page.tsx       Main chat view
+    ├── components/
+    │   ├── ChatMessage.tsx Renders agent responses + feedback buttons
+    │   ├── PerfumeCard.tsx Note chips, accord badges, rating
+    │   └── Sidebar.tsx     HyDE toggle, top-k, gender/accord filters
+    └── lib/
+        ├── api.ts          sendChat / sendFeedback / checkHealth
+        └── types.ts        Shared TypeScript interfaces
+```
+
+---
+
+## API reference
+
+### `POST /chat`
+
+```json
+{
+  "query": "something cozy for a winter date night",
+  "filters": {
+    "gender": "women",
+    "accord": "amber",
+    "top_k": 5,
+    "use_hyde": true
+  }
+}
+```
+
+Response:
+```json
+{
+  "response": "For a cozy winter evening…",
+  "perfumes": [{ "perfume": "Black Opium", "brand": "YSL", … }],
+  "hyde_doc": "Top notes: cinnamon…",
+  "intent": "occasion_based"
+}
+```
+
+### `POST /feedback`
+
+```json
+{ "query": "…", "response": "…", "score": 5 }
+```
+
+### `GET /health`
+
+```json
+{ "status": "ok", "service": "nosknows-api" }
+```

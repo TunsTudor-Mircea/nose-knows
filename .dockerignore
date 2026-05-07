@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+
+# Large generated dirs — mounted as volumes at runtime
+chroma_db/
+models/
+data/
+
+# Frontend (not needed in backend build context)
+frontend/
+
+# Dev / IDE
+.env
+.env.local
+.git/
+.gitignore
+.cursor/
+notebooks/
+*.ipynb
+
+# Docs
+README.md

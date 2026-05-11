@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Plus, X, ThumbsUp, ThumbsDown, Send } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 import PerfumeCard from "@/components/PerfumeCard";
 import {
   createSession, listSessions, deleteSession,
@@ -234,7 +235,7 @@ export default function ChatPage() {
                     {m.hyde_doc && <span>HyDE</span>}
                     {m.latency_ms && <span>{(m.latency_ms / 1000).toFixed(2)} s</span>}
                   </div>
-                  <div className="body">{m.content}</div>
+                  <div className="body"><ReactMarkdown>{m.content}</ReactMarkdown></div>
                   {m.perfumes && m.perfumes.length > 0 && (
                     <div className="pcards">
                       {m.perfumes.map((p, j) => (

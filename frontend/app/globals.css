@@ -194,8 +194,9 @@ a { color: inherit; text-decoration: none; }
   gap: 8px; transition: background 0.15s; }
 .session-item:hover { background: var(--grape-soft); }
 .session-item.active { background: var(--grape-soft); }
+.session-item > div { flex: 1; min-width: 0; overflow: hidden; }
 .session-item .s-title { font-size: 12.5px; font-weight: 500; color: var(--ink);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session-item .s-time { font-family: var(--display); font-size: 10px; color: var(--ink-3);
   letter-spacing: 0.06em; white-space: nowrap; margin-top: 2px; }
 .session-item .s-del { opacity: 0; color: var(--ink-3); background: none; border: none;
@@ -217,7 +218,8 @@ a { color: inherit; text-decoration: none; }
   background: transparent; outline: none; font-size: 14px; line-height: 1.5; padding: 6px 8px; }
 .composer .send { background: var(--ink); color: var(--smoke); border: none;
   border-radius: var(--r-sm); padding: 9px 14px; font-family: var(--display); font-weight: 500;
-  font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; white-space: nowrap; }
+  font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .composer .send:disabled { opacity: 0.35; cursor: not-allowed; }
 
 .msg-user { align-self: flex-end; max-width: 75%; background: var(--ink); color: var(--smoke);
@@ -227,7 +229,15 @@ a { color: inherit; text-decoration: none; }
   font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--grape); }
 .msg-agent .author .badge { display: inline-flex; align-items: center; gap: 4px;
   padding: 3px 8px; background: var(--grape-soft); border-radius: 999px; color: var(--grape); }
-.msg-agent .body { font-size: 15px; line-height: 1.7; color: var(--ink); white-space: pre-wrap; }
+.msg-agent .body { font-size: 15px; line-height: 1.7; color: var(--ink); }
+.msg-agent .body p { margin: 0 0 0.75em; }
+.msg-agent .body p:last-child { margin-bottom: 0; }
+.msg-agent .body strong { font-weight: 600; color: var(--ink); }
+.msg-agent .body em { font-style: italic; }
+.msg-agent .body ul, .msg-agent .body ol { margin: 0.5em 0 0.75em 1.4em; padding: 0; }
+.msg-agent .body li { margin-bottom: 0.25em; }
+.msg-agent .body h1, .msg-agent .body h2, .msg-agent .body h3 { font-family: var(--display);
+  font-weight: 500; margin: 1em 0 0.4em; color: var(--ink); }
 
 .pcards { display: grid; gap: 12px; }
 .pcard { border: 1px solid var(--grape-line); border-radius: var(--r); padding: 18px 20px;

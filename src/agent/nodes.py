@@ -44,7 +44,16 @@ def node_retrieve(state: AgentState) -> dict:
 
 
 def node_recommend(state: AgentState) -> dict:
-    recommendation = generate_recommendation(state["query"], state.get("retrieved", ""))
+    query = state["query"]
+    if state.get("intent") == "follow_up":
+        from langchain_core.messages import AIMessage as _AI
+        prev = next(
+            (m.content for m in reversed(state.get("messages", [])) if isinstance(m, _AI)),
+            None,
+        )
+        if prev:
+            query = f"[Previous response]\n{prev}\n\n[Follow-up question]\n{query}"
+    recommendation = generate_recommendation(query, state.get("retrieved", ""))
     return {"recommendation": recommendation}
 
 

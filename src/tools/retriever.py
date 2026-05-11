@@ -11,6 +11,10 @@ import json
 import os
 
 
+def _slug_to_title(s: str) -> str:
+    return s.replace("-", " ").title() if s else s
+
+
 def _format_results(results) -> str:
     """Render retrieved perfumes as a readable numbered list."""
     if not results:
@@ -19,7 +23,7 @@ def _format_results(results) -> str:
     for i, p in enumerate(results, 1):
         m = p.metadata
         lines.append(
-            f"{i}. {m.get('perfume', '?')} — {m.get('brand', '?')}\n"
+            f"{i}. {_slug_to_title(m.get('perfume', '?'))} — {_slug_to_title(m.get('brand', '?'))}\n"
             f"   Top: {m.get('top_notes', '')}\n"
             f"   Heart: {m.get('heart_notes', '')}\n"
             f"   Base: {m.get('base_notes', '')}\n"

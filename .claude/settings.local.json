@@ -12,7 +12,8 @@
       "Bash(python -c \"import sys,json; msgs=json.load\\(sys.stdin\\); print\\(f'{len\\(msgs\\)} messages saved'\\); [print\\(f'  [{m[\\\\\"role\\\\\"]}] id={m[\\\\\"id\\\\\"]} intent={m[\\\\\"intent\\\\\"]}'\\) for m in msgs]\")",
       "Bash(python -c \"import sys,json; data=sys.stdin.read\\(\\); msgs=json.loads\\(data\\); print\\(f'{len\\(msgs\\)} messages saved'\\); [print\\(f'  [{m[\\\\\"role\\\\\"]}] intent={m[\\\\\"intent\\\\\"]} latency={m[\\\\\"latency_ms\\\\\"]}ms'\\) for m in msgs]\")",
       "Bash(python -c \"import sys,json; msgs=json.loads\\(sys.stdin.read\\(\\)\\); print\\(len\\(msgs\\), 'messages'\\); [print\\(f'  role={m[\\\\\"role\\\\\"]} intent={m[\\\\\"intent\\\\\"]} latency_ms={m[\\\\\"latency_ms\\\\\"]}'\\) for m in msgs]\")",
-      "Bash(python -c \"import sys; print\\(sys.stdin.read\\(\\)[:500]\\)\")"
+      "Bash(python -c \"import sys; print\\(sys.stdin.read\\(\\)[:500]\\)\")",
+      "Bash(rtk read *)"
     ]
   }
 }

@@ -1,4 +1,5 @@
 import { noteCategory } from "@/lib/notes";
+import { slugToTitle } from "@/lib/utils";
 import type { PerfumeCard as PerfumeCardType } from "@/lib/types";
 
 interface Props {
@@ -21,8 +22,8 @@ export default function PerfumeCard({ card, index }: Props) {
     <div className="pcard">
       <div className="num">{String(index).padStart(2, "0")}</div>
       <div>
-        <div className="title">{card.perfume}</div>
-        <div className="brand-name">{card.brand}</div>
+        <div className="title">{slugToTitle(card.perfume)}</div>
+        <div className="brand-name">{slugToTitle(card.brand)}</div>
         <div className="pyramid">
           <div className="lbl">Top</div>    <Notes list={card.top_notes} />
           <div className="lbl">Heart</div>  <Notes list={card.heart_notes} />

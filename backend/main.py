@@ -56,18 +56,8 @@ from src.db.session import get_db  # noqa: E402
 from src.db.models import Session as DBSession, Message as DBMessage, Feedback as DBFeedback  # noqa: E402
 
 # ---------------------------------------------------------------------------
-# Lazy agent loader
+# Graph runner (replaces hand-rolled ReAct agent)
 # ---------------------------------------------------------------------------
-
-_agent = None
-
-
-def _get_agent():
-    global _agent
-    if _agent is None:
-        from src.agent.agent import build_agent
-        _agent = build_agent(verbose=False)
-    return _agent
 
 
 # ---------------------------------------------------------------------------
@@ -182,53 +172,49 @@ def _parse_notes_str(raw: str) -> list[str]:
     return [n.strip() for n in raw.split(",") if n.strip()]
 
 
-def _extract_perfume_cards(intermediate_steps: list) -> list[PerfumeCard]:
+def _parse_retrieved_text(text: str) -> list[PerfumeCard]:
+    """Parse the formatted retrieval text block into PerfumeCard objects."""
+    import re as _re
+    if not text or "No matching perfumes found" in text:
+        return []
     cards: list[PerfumeCard] = []
-    for action, observation in intermediate_steps:
-        if getattr(action, "tool", "") != "retrieve_fragrances":
+    for block in text.split("\n\n"):
+        block = block.strip()
+        if not block:
             continue
-        blocks = [b.strip() for b in observation.split("\n\n") if b.strip()]
-        for block in blocks:
-            lines = block.splitlines()
-            card: dict[str, Any] = {
-                "perfume": "", "brand": "",
-                "top_notes": [], "heart_notes": [], "base_notes": [],
-                "accords": [], "rating": None, "url": "",
-            }
-            for line in lines:
-                if line.startswith("1.") or (len(line) > 2 and line[1] == "."):
-                    parts = line.split(". ", 1)[-1].split(" — ", 1)
-                    card["perfume"] = parts[0].strip()
-                    card["brand"] = parts[1].strip() if len(parts) > 1 else ""
-                elif line.strip().startswith("Top:"):
-                    card["top_notes"] = _parse_notes_str(line.split(":", 1)[-1])
-                elif line.strip().startswith("Heart:"):
-                    card["heart_notes"] = _parse_notes_str(line.split(":", 1)[-1])
-                elif line.strip().startswith("Base:"):
-                    card["base_notes"] = _parse_notes_str(line.split(":", 1)[-1])
-                elif line.strip().startswith("Accords:"):
-                    card["accords"] = _parse_notes_str(line.split(":", 1)[-1])
-                elif "Rating:" in line:
-                    try:
-                        card["rating"] = float(line.split("Rating:")[1].split()[0])
-                    except (ValueError, IndexError):
-                        pass
-            if card["perfume"]:
-                cards.append(PerfumeCard(**card))
+        card: dict[str, Any] = {
+            "perfume": "", "brand": "",
+            "top_notes": [], "heart_notes": [], "base_notes": [],
+            "accords": [], "rating": None, "url": "",
+        }
+        for line in block.splitlines():
+            line = line.strip()
+            if _re.match(r"^\d+\.", line):
+                header = _re.sub(r"^\d+\.\s*", "", line)
+                parts = header.split(" — ", 1)
+                card["perfume"] = parts[0].strip()
+                card["brand"] = parts[1].strip() if len(parts) > 1 else ""
+            elif line.startswith("Top:"):
+                card["top_notes"] = _parse_notes_str(line[4:])
+            elif line.startswith("Heart:"):
+                card["heart_notes"] = _parse_notes_str(line[6:])
+            elif line.startswith("Base:"):
+                card["base_notes"] = _parse_notes_str(line[5:])
+            elif line.startswith("Accords:"):
+                card["accords"] = _parse_notes_str(line[8:])
+            elif line.startswith("Rating:"):
+                try:
+                    card["rating"] = float(line[7:].split()[0])
+                except (ValueError, IndexError):
+                    pass
+        if card["perfume"]:
+            cards.append(PerfumeCard(**card))
     return cards
 
 
-def _extract_intent(intermediate_steps: list) -> str | None:
-    for action, observation in intermediate_steps:
-        if getattr(action, "tool", "") == "classify_intent":
-            return observation
-    return None
-
-
-def _run_agent_sync(query: str, filters: dict | None) -> dict:
-    from src.agent.agent import run_agent
-    agent = _get_agent()
-    return run_agent(agent, query, filters=filters)
+def _run_graph_sync(session_id: str, query: str, filters: dict | None) -> dict:
+    from src.agent.graph import run_graph
+    return run_graph(session_id, query, filters)
 
 
 def _log_feedback_file(entry: dict) -> None:
@@ -348,18 +334,18 @@ async def session_chat(
     db.add(user_msg)
     await db.flush()
 
-    # Run agent (blocking — offload to thread)
+    # Run graph (blocking — offload to thread)
     filters = _build_filters(request.filters)
     t0 = time.monotonic()
     try:
-        agent_result = await asyncio.to_thread(_run_agent_sync, request.query, filters)
+        agent_result = await asyncio.to_thread(_run_graph_sync, str(sid), request.query, filters)
     except Exception as exc:
         await db.rollback()
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     latency_ms = int((time.monotonic() - t0) * 1000)
 
-    perfume_cards = _extract_perfume_cards(agent_result.get("intermediate_steps", []))
-    intent = _extract_intent(agent_result.get("intermediate_steps", []))
+    perfume_cards = _parse_retrieved_text(agent_result.get("retrieved", ""))
+    intent = agent_result.get("intent")
     hyde_doc = agent_result.get("hyde_doc")
     response_text = agent_result["output"]
 
@@ -425,17 +411,20 @@ async def message_feedback(
 @app.post("/chat", response_model=ChatResponse, deprecated=True)
 async def chat_legacy(request: ChatRequest) -> ChatResponse:
     """Stateless legacy endpoint — no DB writes. Use POST /sessions/{id}/chat instead."""
+    import uuid as _uuid_mod
     filters = _build_filters(request.filters)
+    # Use a throwaway session ID — state won't be persisted across calls
+    ephemeral_id = str(_uuid_mod.uuid4())
     try:
-        result = await asyncio.to_thread(_run_agent_sync, request.query, filters)
+        result = await asyncio.to_thread(_run_graph_sync, ephemeral_id, request.query, filters)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return ChatResponse(
         response=result["output"],
-        perfumes=_extract_perfume_cards(result.get("intermediate_steps", [])),
+        perfumes=_parse_retrieved_text(result.get("retrieved", "")),
         hyde_doc=result.get("hyde_doc"),
-        intent=_extract_intent(result.get("intermediate_steps", [])),
+        intent=result.get("intent"),
     )
 
 

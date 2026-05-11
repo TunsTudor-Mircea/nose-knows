@@ -35,7 +35,18 @@ def node_generate_hyde(state: AgentState) -> dict:
 
 
 def node_retrieve(state: AgentState) -> dict:
-    # Use the HyDE doc as the retrieval query when available
+    # For follow-up queries, reuse the previous response as context instead of
+    # hitting ChromaDB with a new query — "which of those" refers to what was
+    # already recommended, not a fresh candidate set.
+    if state.get("intent") == "follow_up":
+        from langchain_core.messages import AIMessage as _AI
+        prev = next(
+            (m.content for m in reversed(state.get("messages", [])) if isinstance(m, _AI)),
+            None,
+        )
+        if prev:
+            return {"retrieved": prev}
+
     retrieval_query = state.get("hyde_doc") or state["query"]
     filters = state.get("filters") or {}
     filters_json = json.dumps({k: v for k, v in filters.items() if k != "top_k"})
@@ -44,16 +55,7 @@ def node_retrieve(state: AgentState) -> dict:
 
 
 def node_recommend(state: AgentState) -> dict:
-    query = state["query"]
-    if state.get("intent") == "follow_up":
-        from langchain_core.messages import AIMessage as _AI
-        prev = next(
-            (m.content for m in reversed(state.get("messages", [])) if isinstance(m, _AI)),
-            None,
-        )
-        if prev:
-            query = f"[Previous response]\n{prev}\n\n[Follow-up question]\n{query}"
-    recommendation = generate_recommendation(query, state.get("retrieved", ""))
+    recommendation = generate_recommendation(state["query"], state.get("retrieved", ""))
     return {"recommendation": recommendation}
 
 
@@ -92,8 +94,8 @@ def node_finalize(state: AgentState) -> dict:
 # ---------------------------------------------------------------------------
 
 def route_after_intent(state: AgentState) -> str:
-    """Skip HyDE for note_based queries — the query itself is already specific."""
-    if state.get("intent") == "note_based":
+    """Skip HyDE for note_based and follow_up — both go straight to retrieve."""
+    if state.get("intent") in ("note_based", "follow_up"):
         return "retrieve"
     return "hyde"
 

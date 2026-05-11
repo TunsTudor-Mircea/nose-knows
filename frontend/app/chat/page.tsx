@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, X, ThumbsUp, ThumbsDown, Send } from "lucide-react";
+import { Plus, X, ThumbsUp, ThumbsDown, Send, StopCircle } from "lucide-react";
 import Markdown from "@/components/Markdown";
 import PerfumeCard from "@/components/PerfumeCard";
 import {
@@ -20,6 +20,21 @@ const STARTERS = [
   "What does Tom Ford pair with patchouli?",
 ];
 
+const FB_STORAGE_KEY = "nosknows_feedback";
+
+function loadFeedbackCache(): Record<string, 1 | -1> {
+  try {
+    const raw = localStorage.getItem(FB_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveFeedbackCache(fb: Record<string, 1 | -1>) {
+  try { localStorage.setItem(FB_STORAGE_KEY, JSON.stringify(fb)); } catch {}
+}
+
 function fmt(iso: string) {
   const d = new Date(iso);
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
@@ -30,19 +45,20 @@ export default function ChatPage() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
-  const [thinking, setThinking] = useState(false);
+  // Track which session ID is currently waiting for a response (null = idle).
+  const [thinkingFor, setThinkingFor] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Record<string, 1 | -1>>({});
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const streamRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   // Load sessions on mount
   useEffect(() => {
     listSessions().then((s) => {
       setSessions(s);
-      if (s.length > 0) {
-        setActiveId(s[0].id);
-      }
+      if (s.length > 0) setActiveId(s[0].id);
     }).catch(console.error);
+    setFeedback(loadFeedbackCache());
   }, []);
 
   // Load messages when active session changes
@@ -51,12 +67,15 @@ export default function ChatPage() {
     getMessages(activeId).then(setMessages).catch(console.error);
   }, [activeId]);
 
-  // Scroll to bottom
+  // Scroll to bottom on new messages or while thinking in active session
   useEffect(() => {
     if (streamRef.current) {
       streamRef.current.scrollTop = streamRef.current.scrollHeight;
     }
-  }, [messages, thinking]);
+  }, [messages, thinkingFor]);
+
+  const isThinking = thinkingFor !== null;
+  const thinkingHere = thinkingFor === activeId;
 
   const handleNewSession = useCallback(async () => {
     try {
@@ -79,9 +98,23 @@ export default function ChatPage() {
     } catch (e) { console.error(e); }
   }, [activeId]);
 
+  const handleCancel = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    setThinkingFor(null);
+    // Remove the optimistic user message that was added
+    setMessages((prev) => {
+      const last = prev[prev.length - 1];
+      if (last && last.id.startsWith("tmp-")) return prev.slice(0, -1);
+      return prev;
+    });
+  }, []);
+
   const handleSend = useCallback(async () => {
     const q = draft.trim();
-    if (!q || thinking) return;
+    if (!q || isThinking) return;
 
     let sid = activeId;
     if (!sid) {
@@ -107,7 +140,10 @@ export default function ChatPage() {
     };
     setMessages((prev) => [...prev, tempUser]);
     setDraft("");
-    setThinking(true);
+    setThinkingFor(sid);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     try {
       const f: Filters = {
@@ -115,7 +151,7 @@ export default function ChatPage() {
         gender: filters.gender === "any" ? "" : filters.gender,
         accord: filters.accord === "any" ? "" : filters.accord,
       };
-      const resp = await sendChat(sid, q, f);
+      const resp = await sendChat(sid, q, f, controller.signal);
 
       const asst: Message = {
         id: resp.message_id,
@@ -130,11 +166,11 @@ export default function ChatPage() {
       };
       setMessages((prev) => [...prev, asst]);
 
-      // Update session title if it was auto-set
       setSessions((prev) => prev.map((s) =>
         s.id === sid ? { ...s, title: s.title ?? q.slice(0, 60) } : s
       ));
     } catch (e) {
+      if ((e as Error).name === "AbortError") return; // user cancelled — already cleaned up
       console.error(e);
       const errMsg: Message = {
         id: `err-${Date.now()}`,
@@ -149,20 +185,26 @@ export default function ChatPage() {
       };
       setMessages((prev) => [...prev, errMsg]);
     } finally {
-      setThinking(false);
+      abortRef.current = null;
+      setThinkingFor(null);
     }
-  }, [draft, thinking, activeId, filters]);
+  }, [draft, isThinking, activeId, filters]);
 
   const handleFeedback = useCallback(async (messageId: string, score: 1 | -1) => {
     const current = feedback[messageId];
+    // Toggle off if same score pressed again
     const newScore = current === score ? undefined : score;
+
     setFeedback((f) => {
       const next = { ...f };
       if (newScore === undefined) delete next[messageId];
       else next[messageId] = newScore;
+      saveFeedbackCache(next);
       return next;
     });
+
     if (newScore !== undefined) {
+      // Always post (backend upserts, so repeated clicks just update score)
       postFeedback(messageId, newScore).catch(console.error);
     }
   }, [feedback]);
@@ -212,7 +254,7 @@ export default function ChatPage() {
           {/* Chat column */}
           <div className="chat-col">
             <div className="chat-stream scroll-y" ref={streamRef}>
-              {messages.length === 0 && !thinking && (
+              {messages.length === 0 && !thinkingHere && (
                 <div className="empty-state">
                   <div style={{ fontSize: 32 }}>🌿</div>
                   <div>Describe a mood, occasion, or notes you love</div>
@@ -263,7 +305,8 @@ export default function ChatPage() {
                 </div>
               ))}
 
-              {thinking && (
+              {/* Thinking indicator only shown in the session that sent the request */}
+              {thinkingHere && (
                 <div className="msg-agent">
                   <div className="author">
                     <span className="badge">NoseKnows</span>
@@ -287,9 +330,15 @@ export default function ChatPage() {
                   onChange={(e) => setDraft(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
                 />
-                <button className="send" disabled={!draft.trim() || thinking} onClick={handleSend}>
-                  Send <Send size={13} />
-                </button>
+                {isThinking ? (
+                  <button className="send cancel" onClick={handleCancel} title="Cancel">
+                    <StopCircle size={13} /> Cancel
+                  </button>
+                ) : (
+                  <button className="send" disabled={!draft.trim()} onClick={handleSend}>
+                    Send <Send size={13} />
+                  </button>
+                )}
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontFamily: "var(--display)", fontSize: 10.5, letterSpacing: "0.12em", color: "var(--ink-3)" }}>
                 <span>Shift + Enter for newline</span>

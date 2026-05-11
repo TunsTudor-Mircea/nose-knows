@@ -35,22 +35,18 @@ def node_generate_hyde(state: AgentState) -> dict:
 
 
 def node_retrieve(state: AgentState) -> dict:
-    # For follow-up queries, reuse the previous response as context instead of
-    # hitting ChromaDB with a new query — "which of those" refers to what was
-    # already recommended, not a fresh candidate set.
+    # For follow-up queries, reuse the structured perfume list from the previous
+    # turn — "which of those" refers to what was already retrieved, not a new set.
     if state.get("intent") == "follow_up":
-        from langchain_core.messages import AIMessage as _AI
-        prev = next(
-            (m.content for m in reversed(state.get("messages", [])) if isinstance(m, _AI)),
-            None,
-        )
+        prev = state.get("previous_retrieved")
         if prev:
             return {"retrieved": prev}
 
     retrieval_query = state.get("hyde_doc") or state["query"]
     filters = state.get("filters") or {}
-    filters_json = json.dumps({k: v for k, v in filters.items() if k != "top_k"})
-    retrieved = retrieve_fragrances(retrieval_query, filters_json)
+    top_k = int(filters.get("top_k", 5))
+    filters_json = json.dumps({k: v for k, v in filters.items() if k not in ("top_k", "use_hyde")})
+    retrieved = retrieve_fragrances(retrieval_query, filters_json, top_k=top_k)
     return {"retrieved": retrieved}
 
 
@@ -86,6 +82,8 @@ def node_finalize(state: AgentState) -> dict:
     return {
         "final_answer": answer,
         "messages": [AIMessage(content=answer)],
+        # Persist the structured retrieval so follow-up queries can reuse it
+        "previous_retrieved": state.get("retrieved") or state.get("previous_retrieved"),
     }
 
 

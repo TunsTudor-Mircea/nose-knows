@@ -105,6 +105,8 @@ def run_graph(session_id: str, query: str, filters: dict | None = None) -> dict:
         "intent": None,
         "hyde_doc": None,
         "retrieved": None,
+        # previous_retrieved is intentionally omitted here so LangGraph carries
+        # it forward from the checkpoint (set by node_finalize on each turn).
         "recommendation": None,
         "validation": None,
         "final_answer": None,

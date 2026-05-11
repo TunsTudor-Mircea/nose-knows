@@ -41,10 +41,12 @@ export const sendChat = (
   sessionId: string,
   query: string,
   filters: Filters,
+  signal?: AbortSignal,
 ): Promise<SessionChatResponse> =>
   req(`/sessions/${sessionId}/chat`, {
     method: "POST",
     body: JSON.stringify({ query, filters }),
+    signal,
   });
 
 // ── Feedback ──────────────────────────────────────────────────────────────

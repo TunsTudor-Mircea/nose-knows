@@ -77,7 +77,7 @@ class HyDERetriever:
         llm: Any,
         db_path: str = "chroma_db",
         top_k: int = 5,
-        low_confidence_threshold: float = 0.55,
+        low_confidence_threshold: float = 0.75,
         retry_limit: int = 2,
     ) -> None:
         self.llm = llm
@@ -122,8 +122,8 @@ class HyDERetriever:
                 print(f"[retriever] HyDE attempt {attempt + 1} failed: {exc}")
                 traceback.print_exc()
 
-        # Fallback: embed the raw query directly
-        print("[retriever] Falling back to direct query embedding.")
+        # HyDE confidence below threshold on all retries — embed the raw query directly.
+        # This is normal for very specific or unusual queries.
         results = self._query_chroma(query, filters)
         return results, hyde_doc
 

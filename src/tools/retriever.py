@@ -33,7 +33,7 @@ def _format_results(results) -> str:
     return "\n\n".join(lines)
 
 
-def retrieve_fragrances(query: str, filters_json: str = "{}") -> str:
+def retrieve_fragrances(query: str, filters_json: str = "{}", top_k: int | None = None) -> str:
     """Search the fragrance database for perfumes matching the query."""
     from src.model import load_llm
     from src.rag.retriever import HyDERetriever
@@ -44,7 +44,8 @@ def retrieve_fragrances(query: str, filters_json: str = "{}") -> str:
         filters = {}
 
     db_path = os.getenv("CHROMA_DB_PATH", "chroma_db")
-    top_k = int(os.getenv("RETRIEVER_TOP_K", "5"))
+    if top_k is None:
+        top_k = int(os.getenv("RETRIEVER_TOP_K", "5"))
 
     retriever = HyDERetriever(llm=load_llm(), db_path=db_path, top_k=top_k)
     results, _hyde_doc = retriever.retrieve(query, filters=filters or None)

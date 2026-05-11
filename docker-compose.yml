@@ -68,6 +68,8 @@ services:
       RETRIEVER_TOP_K: ${RETRIEVER_TOP_K:-5}
       AGENT_MAX_ITERATIONS: ${AGENT_MAX_ITERATIONS:-8}
       POSTGRES_URL: ${POSTGRES_URL:-postgresql://nosknows:nosknows@postgres:5432/nosknows}
+      ANONYMIZED_TELEMETRY: "false"
+      CHROMA_TELEMETRY: "false"
     volumes:
       - ./dataset:/app/dataset:ro
       - ./data:/app/data

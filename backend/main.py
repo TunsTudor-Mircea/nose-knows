@@ -393,13 +393,20 @@ async def message_feedback(
     if msg is None:
         raise HTTPException(status_code=404, detail="Message not found")
 
-    fb = DBFeedback(
-        message_id=mid,
-        session_id=msg.session_id,
-        score=request.score,
-        comment=request.comment,
-    )
-    db.add(fb)
+    # Upsert: update if feedback already exists for this message, else insert.
+    existing = await db.execute(select(DBFeedback).where(DBFeedback.message_id == mid))
+    fb = existing.scalar_one_or_none()
+    if fb is not None:
+        fb.score = request.score
+        fb.comment = request.comment
+    else:
+        fb = DBFeedback(
+            message_id=mid,
+            session_id=msg.session_id,
+            score=request.score,
+            comment=request.comment,
+        )
+        db.add(fb)
     await db.commit()
     return FeedbackResponse(logged=True, message="Feedback recorded. Thank you!")
 

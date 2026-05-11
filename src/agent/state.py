@@ -14,9 +14,10 @@ class AgentState(TypedDict):
     # Populated by nodes
     intent: str | None
     hyde_doc: str | None
-    retrieved: str | None          # formatted text block from ChromaDB
+    retrieved: str | None           # formatted text block from ChromaDB (current turn)
+    previous_retrieved: str | None  # persisted from previous turn for follow-up queries
     recommendation: str | None
-    validation: str | None         # "PASS: ..." or "FAIL: ..."
+    validation: str | None          # "PASS: ..." or "FAIL: ..."
     final_answer: str | None
 
     retry_count: int

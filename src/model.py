@@ -65,5 +65,6 @@ def load_llm() -> OllamaLLM:
     """Return a cached OllamaLLM instance."""
     model = os.getenv("OLLAMA_MODEL", _DEFAULT_MODEL)
     base_url = os.getenv("OLLAMA_BASE_URL", _DEFAULT_BASE_URL)
-    print(f"[model] Using Ollama at {base_url}, model={model}")
-    return OllamaLLM(model=model, base_url=base_url)
+    temperature = float(os.getenv("OLLAMA_TEMPERATURE", "0.3"))
+    print(f"[model] Using Ollama at {base_url}, model={model}, temperature={temperature}")
+    return OllamaLLM(model=model, base_url=base_url, temperature=temperature)

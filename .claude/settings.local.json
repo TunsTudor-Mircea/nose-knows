@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"C:\\\\Uni\\\\anu 3\\\\sem 2\\\\LLMs\\\\nose-knows\" -Force)",
+      "Bash(Select-Object Name, Mode)",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Uni\\\\anu 3\\\\sem 2\\\\LLMs\\\\nose-knows\" -Force | Select-Object Name, @{Name=\"Type\";Expression={if \\($_.PSIsContainer\\) { \"Dir\" } else { \"File\" }}})",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Uni\\\\anu 3\\\\sem 2\\\\LLMs\\\\nose-knows\\\\backend\" -Recurse -Force | Select-Object FullName, @{Name=\"Type\";Expression={if \\($_.PSIsContainer\\) { \"Dir\" } else { \"File\" }}})",
+      "Bash(rtk ls *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Uni\\\\anu 3\\\\sem 2\\\\LLMs\\\\nose-knows\" -Directory)",
+      "Bash(Select-Object Name)"
+    ]
+  }
+}

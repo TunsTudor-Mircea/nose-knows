@@ -1,5 +1,24 @@
 services:
 
+  # ── PostgreSQL database ───────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: nosknows-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nosknows
+      POSTGRES_USER: nosknows
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nosknows}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nosknows"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # ── Ollama inference server ───────────────────────────────────────────────
   ollama:
     image: ollama/ollama:latest
@@ -9,13 +28,6 @@ services:
       - "11434:11434"
     volumes:
       - ollama-data:/root/.ollama
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 15s
@@ -55,12 +67,15 @@ services:
       FEEDBACK_LOG_PATH: /app/data/feedback_log.jsonl
       RETRIEVER_TOP_K: ${RETRIEVER_TOP_K:-5}
       AGENT_MAX_ITERATIONS: ${AGENT_MAX_ITERATIONS:-8}
+      POSTGRES_URL: ${POSTGRES_URL:-postgresql://nosknows:nosknows@postgres:5432/nosknows}
     volumes:
       - ./dataset:/app/dataset:ro
       - ./data:/app/data
       - chroma-data:/app/chroma_db
     depends_on:
       ollama:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c",
@@ -104,13 +119,6 @@ services:
       - ./dataset:/app/dataset:ro
       - ./data:/app/data
       - chroma-data:/app/chroma_db
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
 
   # ── One-shot fine-tuning runner ───────────────────────────────────────────
   # Usage: docker compose run --rm finetune
@@ -130,15 +138,9 @@ services:
       - ./data:/app/data
       - ./models:/app/models
       - hf-cache:/root/.cache/huggingface
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
 
 volumes:
   chroma-data:
   ollama-data:
   hf-cache:
+  pg-data:

@@ -32,6 +32,8 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 COPY src/ ./src/
 COPY backend/ ./backend/
+COPY alembic/ ./alembic/
+COPY alembic.ini ./alembic.ini
 
 RUN mkdir -p data chroma_db dataset models
 

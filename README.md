@@ -41,10 +41,10 @@ cp .env.example .env
 
 # 2. Start Ollama, then pull the model (first time only)
 docker compose up ollama -d
-docker compose run --rm --profile setup model-init   # pulls gemma2:2b (~1.6 GB)
+docker compose --profile setup run --rm model-init   # pulls gemma2:2b
 
 # 3. First-time data ingestion
-docker compose run --rm --profile tools ingest
+docker compose --profile tools run --rm ingest
 
 # 4. Start everything
 docker compose up --build
@@ -52,14 +52,13 @@ docker compose up --build
 # Open http://localhost:3000
 ```
 
-**GPU note:** Ollama automatically uses the RTX 4060 when the NVIDIA Container
-Toolkit is installed. Verify with `docker compose exec ollama ollama ps` — the
-model should show `100% GPU`.
+**CPU note:** this stack is configured to run without GPU access. Expect the
+model to be slower on CPU than on a CUDA-enabled machine.
 
 **Swap the model:**
 ```bash
 # In .env — any model available at https://ollama.com/library
-OLLAMA_MODEL=llama3.2:3b
+OLLAMA_MODEL=gemma2:2b
 ```
 
 **One-shot fine-tuning inside Docker (uses CUDA):**

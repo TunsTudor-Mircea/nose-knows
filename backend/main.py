@@ -224,10 +224,12 @@ def _log_feedback_file(entry: dict) -> None:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
-def _build_filters(f: FiltersModel) -> dict | None:
-    if any([f.gender, f.brand, f.accord]):
-        return {k: v for k, v in {"gender": f.gender, "brand": f.brand, "accord": f.accord}.items() if v}
-    return None
+def _build_filters(f: FiltersModel) -> dict:
+    result: dict = {"top_k": f.top_k, "use_hyde": f.use_hyde}
+    if f.gender: result["gender"] = f.gender
+    if f.brand: result["brand"] = f.brand
+    if f.accord: result["accord"] = f.accord
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -344,10 +346,16 @@ async def session_chat(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     latency_ms = int((time.monotonic() - t0) * 1000)
 
-    perfume_cards = _parse_retrieved_text(agent_result.get("retrieved", ""))
+    all_cards = _parse_retrieved_text(agent_result.get("retrieved", ""))
     intent = agent_result.get("intent")
     hyde_doc = agent_result.get("hyde_doc")
     response_text = agent_result["output"]
+
+    # Only show cards the model actually recommended — filter by name mention in response.
+    # Falls back to all cards if none are matched (e.g., model used abbreviated names).
+    resp_lower = response_text.lower()
+    mentioned = [c for c in all_cards if c.perfume.lower() in resp_lower]
+    perfume_cards = mentioned if mentioned else all_cards
 
     # Save assistant message
     asst_msg = DBMessage(
@@ -439,8 +447,12 @@ def _list_perfumes_sync(limit: int, offset: int, search: str, gender: str) -> di
     import os
     import chromadb
 
+    from chromadb.config import Settings as ChromaSettings
     db_path = os.getenv("CHROMA_DB_PATH", "chroma_db")
-    client = chromadb.PersistentClient(path=db_path)
+    client = chromadb.PersistentClient(
+        path=db_path,
+        settings=ChromaSettings(anonymized_telemetry=False),
+    )
     try:
         col = client.get_collection("fragrances")
     except Exception:

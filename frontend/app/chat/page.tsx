@@ -51,6 +51,8 @@ export default function ChatPage() {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const streamRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // Always reflects the latest activeId inside async callbacks without stale closure.
+  const activeIdRef = useRef<string | null>(null);
 
   // Load sessions on mount
   useEffect(() => {
@@ -60,6 +62,9 @@ export default function ChatPage() {
     }).catch(console.error);
     setFeedback(loadFeedbackCache());
   }, []);
+
+  // Keep ref in sync so async callbacks always see the current session.
+  useEffect(() => { activeIdRef.current = activeId; }, [activeId]);
 
   // Load messages when active session changes
   useEffect(() => {
@@ -164,7 +169,10 @@ export default function ChatPage() {
         latency_ms: null,
         created_at: new Date().toISOString(),
       };
-      setMessages((prev) => [...prev, asst]);
+      // Only append to the displayed messages if the user is still viewing this session.
+      if (activeIdRef.current === sid) {
+        setMessages((prev) => [...prev, asst]);
+      }
 
       setSessions((prev) => prev.map((s) =>
         s.id === sid ? { ...s, title: s.title ?? q.slice(0, 60) } : s
@@ -183,7 +191,9 @@ export default function ChatPage() {
         latency_ms: null,
         created_at: new Date().toISOString(),
       };
-      setMessages((prev) => [...prev, errMsg]);
+      if (activeIdRef.current === sid) {
+        setMessages((prev) => [...prev, errMsg]);
+      }
     } finally {
       abortRef.current = null;
       setThinkingFor(null);
@@ -325,6 +335,7 @@ export default function ChatPage() {
             <div className="chat-input-wrap">
               <div className="composer">
                 <textarea
+                  rows={1}
                   placeholder="Describe a mood, occasion, or notes you love..."
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}

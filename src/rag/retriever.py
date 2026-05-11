@@ -41,7 +41,12 @@ def _get_embedder() -> SentenceTransformer:
 
 @lru_cache(maxsize=1)
 def _get_collection(db_path: str) -> chromadb.Collection:
-    return chromadb.PersistentClient(path=db_path).get_collection(COLLECTION_NAME)
+    from chromadb.config import Settings
+    client = chromadb.PersistentClient(
+        path=db_path,
+        settings=Settings(anonymized_telemetry=False),
+    )
+    return client.get_collection(COLLECTION_NAME)
 
 
 class HyDERetriever:
@@ -98,6 +103,10 @@ class HyDERetriever:
         """
         Retrieve top-k perfumes for *query*.
 
+        Brand filtering is done as a Python post-filter (case-insensitive substring)
+        rather than a ChromaDB WHERE clause, because ChromaDB only supports exact-match
+        string equality which is too brittle for user-typed brand names.
+
         Returns
         -------
         results:
@@ -106,26 +115,37 @@ class HyDERetriever:
             The hypothetical document that was used for retrieval, or None if
             the direct-query fallback was used.
         """
+        brand_filter: str | None = None
+        chroma_filters: dict | None = None
+        if filters:
+            brand_filter = filters.get("brand") or None
+            # Pass everything except brand to ChromaDB — brand is post-filtered in Python.
+            chroma_only = {k: v for k, v in filters.items() if k != "brand"}
+            chroma_filters = chroma_only or None
+
+        # Fetch more candidates when brand filtering so there is enough to choose from.
+        fetch_k = self.top_k * 6 if brand_filter else self.top_k
+
         hyde_doc: str | None = None
         results: list[RetrievedPerfume] = []
 
         for attempt in range(self.retry_limit):
             try:
                 hyde_doc = self._generate_hyde(query)
-                results = self._query_chroma(hyde_doc, filters)
+                results = self._query_chroma(hyde_doc, chroma_filters, n_results=fetch_k)
                 if results and results[0].distance < self.low_confidence_threshold:
-                    return results, hyde_doc
-                # Low confidence — retry with slightly modified prompt
+                    results = self._apply_brand_filter(results, brand_filter)
+                    return results[: self.top_k], hyde_doc
                 query = f"{query} (focus on the mood and sensory experience)"
             except Exception as exc:  # noqa: BLE001
                 import traceback
                 print(f"[retriever] HyDE attempt {attempt + 1} failed: {exc}")
                 traceback.print_exc()
 
-        # HyDE confidence below threshold on all retries — embed the raw query directly.
-        # This is normal for very specific or unusual queries.
-        results = self._query_chroma(query, filters)
-        return results, hyde_doc
+        # HyDE confidence below threshold — embed raw query directly.
+        results = self._query_chroma(query, chroma_filters, n_results=fetch_k)
+        results = self._apply_brand_filter(results, brand_filter)
+        return results[: self.top_k], hyde_doc
 
     # ------------------------------------------------------------------
     # Internals
@@ -139,6 +159,7 @@ class HyDERetriever:
         self,
         text: str,
         filters: dict | None = None,
+        n_results: int | None = None,
     ) -> list[RetrievedPerfume]:
         embedder = _get_embedder()
         collection = _get_collection(self.db_path)
@@ -148,7 +169,7 @@ class HyDERetriever:
 
         kwargs: dict = dict(
             query_embeddings=[embedding],
-            n_results=self.top_k,
+            n_results=min(n_results or self.top_k, collection.count() or 1),
             include=["documents", "metadatas", "distances"],
         )
         if where:
@@ -169,19 +190,34 @@ class HyDERetriever:
         return perfumes
 
     @staticmethod
+    def _apply_brand_filter(
+        results: list[RetrievedPerfume],
+        brand: str | None,
+    ) -> list[RetrievedPerfume]:
+        """Case-insensitive substring match on the brand metadata field."""
+        if not brand:
+            return results
+        bl = brand.strip().lower()
+        filtered = [r for r in results if bl in r.metadata.get("brand", "").lower()]
+        # Fall back to unfiltered if nothing matched (avoids silent empty responses).
+        return filtered if filtered else results
+
+    @staticmethod
     def _build_where(filters: dict | None) -> dict | None:
         """
         Convert a user-facing filter dict into a ChromaDB `where` clause.
 
-        Supported keys: gender, brand, accord.
+        Brand is NOT included here — it is handled as a Python post-filter because
+        ChromaDB only supports exact-match string equality, which is too brittle for
+        user-typed brand names (wrong case, partial name, etc.).
+
+        Supported keys: gender, accord.
         """
         if not filters:
             return None
         clauses = []
         if gender := filters.get("gender"):
             clauses.append({"gender": {"$eq": gender}})
-        if brand := filters.get("brand"):
-            clauses.append({"brand": {"$eq": brand}})
         if accord := filters.get("accord"):
             clauses.append({"accords": {"$contains": accord}})
         if not clauses:

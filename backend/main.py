@@ -405,6 +405,181 @@ async def message_feedback(
 
 
 # ---------------------------------------------------------------------------
+# Perfumes (ChromaDB browse)
+# ---------------------------------------------------------------------------
+
+class PerfumeListItem(BaseModel):
+    id: str
+    perfume: str
+    brand: str
+    gender: str | None
+    year: int | None
+    top_notes: list[str]
+    heart_notes: list[str]
+    base_notes: list[str]
+    accords: list[str]
+    rating: float | None
+    rating_count: int | None
+    url: str
+
+
+class PerfumeListResponse(BaseModel):
+    total: int
+    perfumes: list[PerfumeListItem]
+
+
+def _list_perfumes_sync(limit: int, offset: int, search: str, gender: str) -> dict:
+    import os
+    import chromadb
+
+    db_path = os.getenv("CHROMA_DB_PATH", "chroma_db")
+    client = chromadb.PersistentClient(path=db_path)
+    try:
+        col = client.get_collection("fragrances")
+    except Exception:
+        return {"total": 0, "perfumes": []}
+
+    total = col.count()
+    kwargs: dict = {"limit": limit, "offset": offset, "include": ["metadatas"]}
+    where: dict = {}
+    if gender and gender not in ("any", ""):
+        where["gender"] = gender
+    if where:
+        kwargs["where"] = where
+
+    try:
+        res = col.get(**kwargs)
+    except Exception:
+        res = col.get(limit=limit, offset=offset, include=["metadatas"])
+
+    items = []
+    for mid, meta in zip(res["ids"], res["metadatas"]):
+        def _split(s: str) -> list[str]:
+            return [n.strip() for n in (s or "").split(",") if n.strip()]
+
+        try:
+            year = int(meta.get("year", 0)) or None
+        except (ValueError, TypeError):
+            year = None
+        try:
+            rating = float(meta.get("rating", 0)) or None
+        except (ValueError, TypeError):
+            rating = None
+        try:
+            rating_count = int(meta.get("rating_count", 0)) or None
+        except (ValueError, TypeError):
+            rating_count = None
+
+        perfume_name = meta.get("perfume", "")
+        brand = meta.get("brand", "")
+        if search:
+            sl = search.lower()
+            if sl not in perfume_name.lower() and sl not in brand.lower():
+                continue
+
+        items.append({
+            "id": mid,
+            "perfume": perfume_name,
+            "brand": brand,
+            "gender": meta.get("gender"),
+            "year": year,
+            "top_notes": _split(meta.get("top_notes", "")),
+            "heart_notes": _split(meta.get("heart_notes", "")),
+            "base_notes": _split(meta.get("base_notes", "")),
+            "accords": _split(meta.get("accords", "")),
+            "rating": rating,
+            "rating_count": rating_count,
+            "url": meta.get("url", ""),
+        })
+
+    return {"total": total, "perfumes": items}
+
+
+@app.get("/perfumes", response_model=PerfumeListResponse)
+async def list_perfumes(
+    limit: int = 60,
+    offset: int = 0,
+    search: str = "",
+    gender: str = "",
+) -> PerfumeListResponse:
+    result = await asyncio.to_thread(_list_perfumes_sync, limit, offset, search, gender)
+    return PerfumeListResponse(**result)
+
+
+# ---------------------------------------------------------------------------
+# Feedback list (for Feedback browser page)
+# ---------------------------------------------------------------------------
+
+class FeedbackListItem(BaseModel):
+    id: _uuid.UUID
+    message_id: _uuid.UUID
+    session_id: _uuid.UUID
+    score: int
+    comment: str | None
+    created_at: datetime
+    message_content: str | None
+    query: str | None
+    intent: str | None
+
+    class Config:
+        from_attributes = True
+
+
+class FeedbackListResponse(BaseModel):
+    total: int
+    items: list[FeedbackListItem]
+
+
+@app.get("/feedback/list", response_model=FeedbackListResponse)
+async def list_feedback(
+    limit: int = 50,
+    offset: int = 0,
+    score: int | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> FeedbackListResponse:
+    from sqlalchemy import func, join
+
+    q = select(DBFeedback).order_by(DBFeedback.created_at.desc())
+    if score is not None:
+        q = q.where(DBFeedback.score == score)
+    total_res = await db.execute(select(func.count()).select_from(DBFeedback))
+    total = total_res.scalar_one()
+
+    fb_res = await db.execute(q.limit(limit).offset(offset))
+    feedback_rows = fb_res.scalars().all()
+
+    items = []
+    for fb in feedback_rows:
+        msg_res = await db.execute(select(DBMessage).where(DBMessage.id == fb.message_id))
+        msg = msg_res.scalar_one_or_none()
+        query_content: str | None = None
+        if msg:
+            prev = await db.execute(
+                select(DBMessage)
+                .where(DBMessage.session_id == msg.session_id, DBMessage.role == "user")
+                .where(DBMessage.created_at < msg.created_at)
+                .order_by(DBMessage.created_at.desc())
+                .limit(1)
+            )
+            user_msg = prev.scalar_one_or_none()
+            query_content = user_msg.content if user_msg else None
+
+        items.append(FeedbackListItem(
+            id=fb.id,
+            message_id=fb.message_id,
+            session_id=fb.session_id,
+            score=fb.score,
+            comment=fb.comment,
+            created_at=fb.created_at,
+            message_content=msg.content if msg else None,
+            query=query_content,
+            intent=msg.intent if msg else None,
+        ))
+
+    return FeedbackListResponse(total=total, items=items)
+
+
+# ---------------------------------------------------------------------------
 # Deprecated pass-throughs
 # ---------------------------------------------------------------------------
 

@@ -1,11 +1,11 @@
 "use client";
 
 import { ThumbsDown, ThumbsUp } from "lucide-react";
-import type { ChatMessage as ChatMessageType } from "@/lib/types";
+import type { Message } from "@/lib/types";
 import PerfumeCard from "./PerfumeCard";
 
 interface Props {
-  message: ChatMessageType;
+  message: Message & { feedback?: 1 | -1 | null };
   onFeedback: (messageId: string, score: 1 | -1) => void;
 }
 
@@ -64,7 +64,7 @@ export default function ChatMessage({ message, onFeedback }: Props) {
       {message.perfumes && message.perfumes.length > 0 && (
         <div className="flex gap-3 overflow-x-auto pb-1">
           {message.perfumes.map((p, i) => (
-            <PerfumeCard key={`${p.perfume}-${i}`} perfume={p} />
+            <PerfumeCard key={`${p.perfume}-${i}`} card={p} index={i + 1} />
           ))}
         </div>
       )}

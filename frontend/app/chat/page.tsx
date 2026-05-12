@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Plus, X, ThumbsUp, ThumbsDown, Send, StopCircle } from "lucide-react";
 import Markdown from "@/components/Markdown";
 import PerfumeCard from "@/components/PerfumeCard";
+import BrandCombobox from "@/components/BrandCombobox";
 import {
   createSession, listSessions, deleteSession,
   getMessages, sendChat, postFeedback,
@@ -390,9 +391,10 @@ export default function ChatPage() {
             </div>
             <div>
               <h3>Brand</h3>
-              <input className="input" placeholder="Type a brand..."
+              <BrandCombobox
                 value={filters.brand}
-                onChange={(e) => setFilters((f) => ({ ...f, brand: e.target.value }))} />
+                onChange={(brand) => setFilters((f) => ({ ...f, brand }))}
+              />
             </div>
             <div style={{ marginTop: "auto", paddingTop: 18, borderTop: "1px solid var(--grape-line)" }}>
               <h3>Try a starter</h3>

@@ -89,6 +89,11 @@ export const listPerfumes = (params: {
   return req(`/perfumes?${qs}`);
 };
 
+// ── Brands ───────────────────────────────────────────────────────────────
+
+export const searchBrands = (q: string): Promise<string[]> =>
+  req(`/brands?q=${encodeURIComponent(q)}`);
+
 // ── Health ────────────────────────────────────────────────────────────────
 
 export const checkHealth = async (): Promise<boolean> => {

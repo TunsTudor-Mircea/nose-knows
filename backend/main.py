@@ -351,11 +351,15 @@ async def session_chat(
     hyde_doc = agent_result.get("hyde_doc")
     response_text = agent_result["output"]
 
-    # Only show cards the model actually recommended — filter by name mention in response.
-    # Falls back to all cards if none are matched (e.g., model used abbreviated names).
-    resp_lower = response_text.lower()
-    mentioned = [c for c in all_cards if c.perfume.lower() in resp_lower]
-    perfume_cards = mentioned if mentioned else all_cards
+    # For follow-up queries the retrieved set is the full previous turn's results;
+    # filter to only the cards the model explicitly mentioned in its response.
+    # For all other intents show every retrieved card (preserves the user's top-k choice).
+    if intent == "follow_up":
+        resp_lower = response_text.lower()
+        mentioned = [c for c in all_cards if c.perfume.lower() in resp_lower]
+        perfume_cards = mentioned if mentioned else all_cards
+    else:
+        perfume_cards = all_cards
 
     # Save assistant message
     asst_msg = DBMessage(
@@ -512,6 +516,51 @@ def _list_perfumes_sync(limit: int, offset: int, search: str, gender: str) -> di
         })
 
     return {"total": total, "perfumes": items}
+
+
+# ---------------------------------------------------------------------------
+# Brand autocomplete
+# ---------------------------------------------------------------------------
+
+_brand_cache: list[str] = []
+
+
+def _load_brands_sync() -> list[str]:
+    import chromadb
+    from chromadb.config import Settings as ChromaSettings
+
+    db_path = os.getenv("CHROMA_DB_PATH", "chroma_db")
+    try:
+        client = chromadb.PersistentClient(
+            path=db_path,
+            settings=ChromaSettings(anonymized_telemetry=False),
+        )
+        col = client.get_collection("fragrances")
+    except Exception:
+        return []
+
+    total = col.count()
+    seen: set[str] = set()
+    batch = 1000
+    for offset in range(0, total, batch):
+        res = col.get(limit=batch, offset=offset, include=["metadatas"])
+        for meta in res["metadatas"]:
+            b = (meta.get("brand") or "").strip()
+            if b:
+                seen.add(b)
+
+    return sorted(seen, key=str.lower)
+
+
+@app.get("/brands", response_model=list[str])
+async def list_brands(q: str = "") -> list[str]:
+    global _brand_cache
+    if not _brand_cache:
+        _brand_cache = await asyncio.to_thread(_load_brands_sync)
+    if not q:
+        return _brand_cache[:80]
+    ql = q.strip().lower()
+    return [b for b in _brand_cache if ql in b.lower()][:50]
 
 
 @app.get("/perfumes", response_model=PerfumeListResponse)

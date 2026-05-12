@@ -463,23 +463,31 @@ def _list_perfumes_sync(limit: int, offset: int, search: str, gender: str) -> di
         return {"total": 0, "perfumes": []}
 
     total = col.count()
-    kwargs: dict = {"limit": limit, "offset": offset, "include": ["metadatas"]}
+
+    # When a text search is provided we must fetch all records and filter in Python
+    # because ChromaDB has no full-text search.  Otherwise, use ChromaDB paging directly.
+    needs_python_filter = bool(search)
+    fetch_limit = total if needs_python_filter else limit
+    fetch_offset = 0 if needs_python_filter else offset
+
     where: dict = {}
     if gender and gender not in ("any", ""):
-        where["gender"] = gender
+        where["gender"] = {"$eq": gender}
+
+    kwargs: dict = {"limit": fetch_limit, "offset": fetch_offset, "include": ["metadatas"]}
     if where:
         kwargs["where"] = where
 
     try:
         res = col.get(**kwargs)
     except Exception:
-        res = col.get(limit=limit, offset=offset, include=["metadatas"])
+        res = col.get(limit=fetch_limit, offset=fetch_offset, include=["metadatas"])
+
+    def _split(s: str) -> list[str]:
+        return [n.strip() for n in (s or "").split(",") if n.strip()]
 
     items = []
     for mid, meta in zip(res["ids"], res["metadatas"]):
-        def _split(s: str) -> list[str]:
-            return [n.strip() for n in (s or "").split(",") if n.strip()]
-
         try:
             year = int(meta.get("year", 0)) or None
         except (ValueError, TypeError):
@@ -514,6 +522,12 @@ def _list_perfumes_sync(limit: int, offset: int, search: str, gender: str) -> di
             "rating_count": rating_count,
             "url": meta.get("url", ""),
         })
+
+    # For text-search results, paginate in Python after filtering.
+    if needs_python_filter:
+        filtered_total = len(items)
+        items = items[offset : offset + limit]
+        return {"total": filtered_total, "perfumes": items}
 
     return {"total": total, "perfumes": items}
 
@@ -596,6 +610,23 @@ class FeedbackListItem(BaseModel):
 class FeedbackListResponse(BaseModel):
     total: int
     items: list[FeedbackListItem]
+
+
+@app.delete("/feedback/{feedback_id}", status_code=204)
+async def delete_feedback(
+    feedback_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    try:
+        fid = _uuid.UUID(feedback_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid feedback ID format")
+    result = await db.execute(select(DBFeedback).where(DBFeedback.id == fid))
+    fb = result.scalar_one_or_none()
+    if fb is None:
+        raise HTTPException(status_code=404, detail="Feedback not found")
+    await db.delete(fb)
+    await db.commit()
 
 
 @app.get("/feedback/list", response_model=FeedbackListResponse)

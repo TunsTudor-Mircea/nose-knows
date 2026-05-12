@@ -15,6 +15,7 @@ export default function BrandCombobox({ value, onChange }: Props) {
   const [options, setOptions] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(0);
+  const [loading, setLoading] = useState(false);
   const [rect, setRect] = useState<Rect | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -42,14 +43,15 @@ export default function BrandCombobox({ value, onChange }: Props) {
   // Fetch suggestions with debounce.
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!query.trim()) { setOptions([]); setOpen(false); return; }
+    if (!query.trim()) { setOptions([]); setOpen(false); setLoading(false); return; }
+    setLoading(true);
     debounceRef.current = setTimeout(async () => {
       try {
         const results = await searchBrands(query);
         setOptions(results);
         setHighlighted(0);
         setOpen(results.length > 0);
-      } catch { setOptions([]); }
+      } catch { setOptions([]); } finally { setLoading(false); }
     }, 220);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [query]);
@@ -107,11 +109,19 @@ export default function BrandCombobox({ value, onChange }: Props) {
           className="input"
           placeholder="Type a brand…"
           value={query}
-          onChange={(e) => { setQuery(e.target.value); if (!e.target.value) onChange(""); }}
+          onChange={(e) => {
+            const v = e.target.value;
+            setQuery(v);
+            // Propagate the typed value immediately so the filter is applied on send.
+            onChange(v);
+          }}
           onFocus={() => { if (options.length > 0) setOpen(true); }}
           onKeyDown={handleKey}
           autoComplete="off"
         />
+        {loading && (
+          <span style={{ position: "absolute", right: query ? 28 : 8, top: "50%", transform: "translateY(-50%)", fontSize: 10, color: "var(--ink-3)", pointerEvents: "none" }}>…</span>
+        )}
         {query && (
           <button className="brand-clear" onClick={clear} aria-label="Clear brand">×</button>
         )}

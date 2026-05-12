@@ -5,7 +5,7 @@ import { noteCategory } from "@/lib/notes";
 import { listPerfumes } from "@/lib/api";
 import type { PerfumeListItem } from "@/lib/types";
 
-type SortKey = "rating" | "year" | "name";
+type SortKey = "rating" | "name";
 
 function Notes({ list }: { list: string[] }) {
   return (
@@ -29,7 +29,7 @@ export default function ExplorerPage() {
   const load = useCallback(async (search: string, genderFilter: string) => {
     setLoading(true);
     try {
-      const res = await listPerfumes({ search, gender: genderFilter, limit: 200 });
+      const res = await listPerfumes({ search, gender: genderFilter, limit: 60 });
       setTotal(res.total);
       setRows(res.perfumes);
       if (res.perfumes.length > 0 && !selectedId) setSelectedId(res.perfumes[0].id);
@@ -48,10 +48,14 @@ export default function ExplorerPage() {
     load(q, gender.size === 1 ? [...gender][0] : "");
   }, [q, gender, load]);
 
+  // Re-run search whenever gender selection changes.
+  useEffect(() => {
+    load(q, gender.size === 1 ? [...gender][0] : "");
+  }, [gender]);  // eslint-disable-line react-hooks/exhaustive-deps
+
   const sorted = useMemo(() => {
     const r = [...rows];
     if (sortBy === "rating") r.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
-    else if (sortBy === "year") r.sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
     else r.sort((a, b) => a.perfume.localeCompare(b.perfume));
     return r;
   }, [rows, sortBy]);
@@ -98,7 +102,6 @@ export default function ExplorerPage() {
             onChange={(e) => setSortBy(e.target.value as SortKey)}
           >
             <option value="rating">Sort · rating high to low</option>
-            <option value="year">Sort · year newest</option>
             <option value="name">Sort · name A to Z</option>
           </select>
           <button className="btn primary sm" onClick={handleSearch}>Search</button>
@@ -108,7 +111,7 @@ export default function ExplorerPage() {
           <div className="card" style={{ padding: 0, overflow: "hidden" }}>
             <div style={{ padding: "12px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--grape-line)" }}>
               <span className="eyebrow">
-                {loading ? "Loading…" : `${sorted.length.toLocaleString()} matches · showing first 60`}
+                {loading ? "Loading…" : `${total.toLocaleString()} matches · showing ${sorted.length}`}
               </span>
               <div style={{ display: "flex", gap: 6 }}>
                 {[...gender].map((g) => (
@@ -125,7 +128,6 @@ export default function ExplorerPage() {
                     <th style={{ width: 40 }}></th>
                     <th>Perfume</th>
                     <th>Brand</th>
-                    <th>Year</th>
                     <th>Gender</th>
                     <th>Accords</th>
                     <th style={{ width: 90, textAlign: "right" }}>Rating</th>
@@ -144,7 +146,6 @@ export default function ExplorerPage() {
                       </td>
                       <td style={{ fontWeight: 500 }}>{p.perfume}</td>
                       <td style={{ color: "var(--ink-2)" }}>{p.brand}</td>
-                      <td style={{ color: "var(--ink-3)" }}>{p.year ?? "—"}</td>
                       <td>
                         {p.gender && (
                           <span className="chip lav" style={{ padding: "2px 8px", fontSize: 10 }}>{p.gender}</span>

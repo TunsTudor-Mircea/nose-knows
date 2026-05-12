@@ -73,6 +73,9 @@ export const listFeedback = (params: {
   return req(`/feedback/list?${qs}`);
 };
 
+export const deleteFeedback = (id: string): Promise<void> =>
+  req(`/feedback/${id}`, { method: "DELETE" });
+
 // ── Perfumes (Explorer) ───────────────────────────────────────────────────
 
 export const listPerfumes = (params: {

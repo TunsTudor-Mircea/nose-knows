@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { ThumbsUp, ThumbsDown } from "lucide-react";
-import { listFeedback } from "@/lib/api";
+import { ThumbsUp, ThumbsDown, Trash2 } from "lucide-react";
+import { listFeedback, deleteFeedback } from "@/lib/api";
 import type { FeedbackEvent } from "@/lib/types";
 
 function fmt(iso: string) {
@@ -36,6 +36,16 @@ export default function FeedbackPage() {
     setFilt(f);
     load(f);
   }
+
+  const handleDelete = useCallback(async (id: string) => {
+    try {
+      await deleteFeedback(id);
+      setItems((prev) => prev.filter((e) => e.id !== id));
+      setTotal((t) => t - 1);
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
 
   const upCount = items.filter((e) => e.score === 1).length;
   const downCount = items.filter((e) => e.score === -1).length;
@@ -118,6 +128,15 @@ export default function FeedbackPage() {
                   <span className={`verdict ${e.score === 1 ? "up" : "down"}`}>
                     {e.score === 1 ? <ThumbsUp size={16} strokeWidth={1.6} /> : <ThumbsDown size={16} strokeWidth={1.6} />}
                   </span>
+                  <button
+                    className="btn ghost sm"
+                    style={{ padding: "2px 6px", marginLeft: 8, color: "var(--ink-3)" }}
+                    onClick={() => handleDelete(e.id)}
+                    aria-label="Delete feedback"
+                    title="Delete"
+                  >
+                    <Trash2 size={13} />
+                  </button>
                 </div>
               ))}
             </div>

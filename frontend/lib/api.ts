@@ -5,6 +5,9 @@ import type {
   Filters,
   PerfumeListResponse,
   FeedbackListResponse,
+  IngestUploadResponse,
+  IngestJob,
+  IngestDataset,
 } from "./types";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -96,6 +99,27 @@ export const listPerfumes = (params: {
 
 export const searchBrands = (q: string): Promise<string[]> =>
   req(`/brands?q=${encodeURIComponent(q)}`);
+
+// ── Ingestion ────────────────────────────────────────────────────────────
+
+export const uploadDataset = async (file: File): Promise<IngestUploadResponse> => {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${API}/ingest/upload`, { method: "POST", body: form });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`${res.status}: ${text}`);
+  }
+  return res.json();
+};
+
+export const runIngestion = (filename: string): Promise<{ job_id: string; status: string }> =>
+  req("/ingest/run", { method: "POST", body: JSON.stringify({ filename }) });
+
+export const getIngestStatus = (jobId: string): Promise<IngestJob> =>
+  req(`/ingest/status/${jobId}`);
+
+export const listDatasets = (): Promise<IngestDataset[]> => req("/ingest/datasets");
 
 // ── Health ────────────────────────────────────────────────────────────────
 

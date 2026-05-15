@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -52,8 +52,8 @@ app.add_middleware(
 # DB dependency
 # ---------------------------------------------------------------------------
 
-from src.db.session import get_db  # noqa: E402
-from src.db.models import Session as DBSession, Message as DBMessage, Feedback as DBFeedback  # noqa: E402
+from src.db.session import get_db, AsyncSessionLocal  # noqa: E402
+from src.db.models import Session as DBSession, Message as DBMessage, Feedback as DBFeedback, IngestJob  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Graph runner (replaces hand-rolled ReAct agent)
@@ -676,6 +676,177 @@ async def list_feedback(
         ))
 
     return FeedbackListResponse(total=total, items=items)
+
+
+# ---------------------------------------------------------------------------
+# Ingestion API (Phase 4)
+# ---------------------------------------------------------------------------
+
+UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
+_REQUIRED_COLS = {"Perfume", "Brand"}
+_job_progress: dict[str, int] = {}  # in-memory progress tracking per job
+
+
+class IngestRunRequest(BaseModel):
+    filename: str
+
+
+def _parse_upload_preview(file_path: str) -> dict:
+    import pandas as pd
+
+    for enc in ("utf-8", "latin-1", "cp1252"):
+        try:
+            head = pd.read_csv(file_path, sep=";", nrows=6, encoding=enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    else:
+        head = pd.read_csv(file_path, sep=";", nrows=6, encoding="utf-8", encoding_errors="replace")
+
+    columns = [c.strip() for c in head.columns.tolist()]
+    col_set = set(columns)
+    missing = sorted(_REQUIRED_COLS - col_set)
+
+    with open(file_path, encoding="utf-8", errors="replace") as fh:
+        total_rows = max(sum(1 for _ in fh) - 1, 0)  # subtract header line
+
+    preview = head.fillna("").head(5).to_dict("records")
+    return {
+        "filename": Path(file_path).name,
+        "detected_columns": columns,
+        "missing_required": missing,
+        "row_count": max(total_rows, 0),
+        "preview": preview,
+        "valid": len(missing) == 0,
+    }
+
+
+def _pipeline_step(file_path: str, chunks_path: str) -> int:
+    from src.data_pipeline import run as dp_run
+    chunks = dp_run(file_path, chunks_path)
+    return len(chunks)
+
+
+def _index_step(chunks_path: str, db_path: str) -> int:
+    from src.rag.build_index import build_index
+    collection = build_index(chunks_path, db_path)
+    return collection.count()
+
+
+async def _run_ingest_bg(job_id: str, file_path: str) -> None:
+    """Background task: run data pipeline then rebuild ChromaDB index."""
+    jid = _uuid.UUID(job_id)
+
+    async with AsyncSessionLocal() as db:
+        job = (await db.execute(select(IngestJob).where(IngestJob.id == jid))).scalar_one_or_none()
+        if job is None:
+            return
+        job.status = "running"
+        await db.commit()
+
+    _job_progress[job_id] = 5
+
+    try:
+        chunks_path = os.getenv("CHUNKS_PATH", "data/chunks.jsonl")
+        total_rows = await asyncio.to_thread(_pipeline_step, file_path, chunks_path)
+        _job_progress[job_id] = 40
+
+        chroma_path = os.getenv("CHROMA_DB_PATH", "chroma_db")
+        processed = await asyncio.to_thread(_index_step, chunks_path, chroma_path)
+        _job_progress[job_id] = 100
+
+        async with AsyncSessionLocal() as db:
+            job = (await db.execute(select(IngestJob).where(IngestJob.id == jid))).scalar_one_or_none()
+            if job:
+                job.status = "done"
+                job.total_rows = total_rows
+                job.processed_rows = processed
+                job.completed_at = datetime.now(timezone.utc)
+                await db.commit()
+
+    except Exception as exc:
+        async with AsyncSessionLocal() as db:
+            job = (await db.execute(select(IngestJob).where(IngestJob.id == jid))).scalar_one_or_none()
+            if job:
+                job.status = "error"
+                job.message = str(exc)[:500]
+                job.completed_at = datetime.now(timezone.utc)
+                await db.commit()
+        _job_progress.pop(job_id, None)
+
+
+@app.post("/ingest/upload")
+async def upload_dataset(file: UploadFile = File(...)) -> dict:
+    if not (file.filename or "").lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Only CSV files are accepted")
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    dest = UPLOAD_DIR / (file.filename or "upload.csv")
+    content = await file.read()
+    with open(dest, "wb") as fh:
+        fh.write(content)
+    try:
+        result = await asyncio.to_thread(_parse_upload_preview, str(dest))
+    except Exception as exc:
+        dest.unlink(missing_ok=True)
+        raise HTTPException(status_code=422, detail=f"Could not parse CSV: {exc}") from exc
+    return result
+
+
+@app.post("/ingest/run")
+async def run_ingest(
+    body: IngestRunRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    file_path = UPLOAD_DIR / body.filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail=f"File '{body.filename}' not found in uploads")
+    job = IngestJob(filename=body.filename, status="pending")
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
+    job_id = str(job.id)
+    _job_progress[job_id] = 0
+    background_tasks.add_task(_run_ingest_bg, job_id, str(file_path))
+    return {"job_id": job_id, "status": "pending"}
+
+
+@app.get("/ingest/status/{job_id}")
+async def get_ingest_status(job_id: str, db: AsyncSession = Depends(get_db)) -> dict:
+    try:
+        jid = _uuid.UUID(job_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid job ID")
+    job = (await db.execute(select(IngestJob).where(IngestJob.id == jid))).scalar_one_or_none()
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    progress = 100 if job.status == "done" else _job_progress.get(job_id, 0)
+    return {
+        "id": str(job.id),
+        "filename": job.filename,
+        "status": job.status,
+        "total_rows": job.total_rows,
+        "processed_rows": job.processed_rows,
+        "progress_pct": progress,
+        "message": job.message,
+        "created_at": job.created_at.isoformat(),
+        "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+    }
+
+
+@app.get("/ingest/datasets")
+async def list_datasets(db: AsyncSession = Depends(get_db)) -> list[dict]:
+    result = await db.execute(select(IngestJob).order_by(IngestJob.created_at.desc()))
+    return [
+        {
+            "id": str(j.id),
+            "filename": j.filename,
+            "status": j.status,
+            "total_rows": j.total_rows,
+            "created_at": j.created_at.isoformat(),
+        }
+        for j in result.scalars().all()
+    ]
 
 
 # ---------------------------------------------------------------------------

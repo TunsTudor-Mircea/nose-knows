@@ -69,3 +69,16 @@ class Feedback(Base):
 
     message = relationship("Message", back_populates="feedback")
     session = relationship("Session", back_populates="feedback")
+
+
+class IngestJob(Base):
+    __tablename__ = "ingest_jobs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    filename = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, default="pending")  # pending|running|done|error
+    total_rows = Column(Integer, nullable=True)
+    processed_rows = Column(Integer, nullable=True)
+    message = Column(Text, nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), default=_now, nullable=False)
+    completed_at = Column(TIMESTAMP(timezone=True), nullable=True)

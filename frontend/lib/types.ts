@@ -80,3 +80,32 @@ export interface FeedbackListResponse {
   total: number;
   items: FeedbackEvent[];
 }
+
+export interface IngestUploadResponse {
+  filename: string;
+  detected_columns: string[];
+  missing_required: string[];
+  row_count: number;
+  preview: Record<string, string>[];
+  valid: boolean;
+}
+
+export interface IngestJob {
+  id: string;
+  filename: string;
+  status: "pending" | "running" | "done" | "error";
+  total_rows: number | null;
+  processed_rows: number | null;
+  progress_pct: number;
+  message: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface IngestDataset {
+  id: string;
+  filename: string;
+  status: string;
+  total_rows: number | null;
+  created_at: string;
+}

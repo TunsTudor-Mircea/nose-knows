@@ -3,7 +3,7 @@ import SidebarShell from "@/components/SidebarShell";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "NoseKnows — AI Fragrance Consultant",
+  title: "NoseKnows",
   description: "Describe your mood, occasion, or desired feeling and NoseKnows will recommend the perfect fragrance.",
 };
 

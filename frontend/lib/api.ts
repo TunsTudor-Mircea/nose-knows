@@ -19,7 +19,12 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`${res.status}: ${text}`);
+    let message = text || `Request failed with status ${res.status}`;
+    try {
+      const json = JSON.parse(text);
+      if (json.detail) message = json.detail;
+    } catch { /* not JSON — use raw text */ }
+    throw new Error(message);
   }
   if (res.status === 204) return undefined as T;
   return res.json();

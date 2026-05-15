@@ -54,6 +54,7 @@ app.add_middleware(
 
 from src.db.session import get_db, AsyncSessionLocal  # noqa: E402
 from src.db.models import Session as DBSession, Message as DBMessage, Feedback as DBFeedback, IngestJob  # noqa: E402
+from src.tools.guard import _blocklist_check  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Graph runner (replaces hand-rolled ReAct agent)
@@ -322,6 +323,13 @@ async def session_chat(
     session = result.scalar_one_or_none()
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
+
+    # Input guard — reject queries containing prohibited language before touching the LLM
+    if _blocklist_check(request.query):
+        raise HTTPException(
+            status_code=400,
+            detail="Your message contains prohibited language. Please rephrase your query.",
+        )
 
     # Auto-set title from first user message
     if session.title is None:

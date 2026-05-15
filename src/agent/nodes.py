@@ -76,8 +76,8 @@ def node_finalize(state: AgentState) -> dict:
     if re.match(r"^PASS[:\s]", validation, re.IGNORECASE):
         answer = re.sub(r"^PASS:\s*", "", validation, flags=re.IGNORECASE).strip()
     else:
-        # Max retries hit — return recommendation or safe fallback
-        answer = state.get("recommendation") or _SAFE_FALLBACK
+        # Max retries hit — always return safe fallback, never a failed recommendation
+        answer = _SAFE_FALLBACK
 
     return {
         "final_answer": answer,

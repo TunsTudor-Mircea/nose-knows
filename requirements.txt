@@ -40,3 +40,6 @@ psycopg2-binary>=2.9
 # Phase 2 — LangGraph agent
 langgraph>=0.2
 langgraph-checkpoint-postgres
+
+# Phase 5 — Guardrails (spaCy NER for hallucination detection)
+spacy>=3.7

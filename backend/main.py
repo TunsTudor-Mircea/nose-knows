@@ -858,6 +858,98 @@ async def list_datasets(db: AsyncSession = Depends(get_db)) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# RLHF (Phase 6)
+# ---------------------------------------------------------------------------
+
+@app.get("/rlhf/stats")
+async def rlhf_stats(db: AsyncSession = Depends(get_db)) -> dict:
+    """Return feedback stats useful for deciding when to run DPO export."""
+    from sqlalchemy import func
+
+    total_res = await db.execute(select(func.count()).select_from(DBFeedback))
+    total = total_res.scalar_one()
+
+    pos_res = await db.execute(
+        select(func.count()).select_from(DBFeedback).where(DBFeedback.score == 1)
+    )
+    positive = pos_res.scalar_one()
+    negative = total - positive
+
+    # Count distinct prompts that have BOTH a positive and negative response
+    # (these are the ones that will yield DPO pairs)
+    from sqlalchemy import distinct
+    pos_msgs = (
+        select(DBMessage.session_id, DBMessage.content)
+        .join(DBFeedback, DBFeedback.message_id == DBMessage.id)
+        .where(DBFeedback.score == 1)
+        .where(DBMessage.role == "assistant")
+    ).subquery()
+
+    neg_msgs = (
+        select(DBMessage.session_id, DBMessage.content)
+        .join(DBFeedback, DBFeedback.message_id == DBMessage.id)
+        .where(DBFeedback.score == -1)
+        .where(DBMessage.role == "assistant")
+    ).subquery()
+
+    # Rough DPO-pair estimate: queries with both pos and neg (done in Python below)
+    all_fb = (
+        await db.execute(
+            select(DBFeedback.score, DBMessage.session_id, DBMessage.content)
+            .join(DBMessage, DBMessage.id == DBFeedback.message_id)
+            .where(DBMessage.role == "assistant")
+        )
+    ).all()
+
+    # Group by session to find sessions that have both polarities
+    from collections import defaultdict
+    session_scores: dict = defaultdict(set)
+    for score, session_id, _ in all_fb:
+        session_scores[str(session_id)].add(score)
+
+    paired_sessions = sum(
+        1 for scores in session_scores.values() if 1 in scores and -1 in scores
+    )
+
+    dpo_pairs_path = os.getenv("DPO_PAIRS_PATH", "data/dpo_pairs.jsonl")
+    pairs_on_disk = 0
+    if Path(dpo_pairs_path).exists():
+        with open(dpo_pairs_path, encoding="utf-8") as fh:
+            pairs_on_disk = sum(1 for _ in fh)
+
+    return {
+        "total_feedback": total,
+        "positive": positive,
+        "negative": negative,
+        "sessions_with_contrast": paired_sessions,
+        "estimated_dpo_pairs": paired_sessions,
+        "dpo_pairs_on_disk": pairs_on_disk,
+        "dpo_pairs_path": dpo_pairs_path,
+        "ready_for_export": paired_sessions >= 5,
+    }
+
+
+@app.post("/rlhf/export")
+async def rlhf_export(
+    background_tasks: BackgroundTasks,
+    output: str | None = None,
+) -> dict:
+    """Trigger DPO pair export as a background task. Returns immediately."""
+    out_path = output or os.getenv("DPO_PAIRS_PATH", "data/dpo_pairs.jsonl")
+
+    async def _run() -> None:
+        from src.rlhf.export_dpo_pairs import main as export_main
+        await export_main(out_path, min_pairs=5, dry_run=False)
+
+    background_tasks.add_task(_run)
+    return {
+        "status": "started",
+        "output": out_path,
+        "message": "DPO export running in background. Check the output file when complete.",
+    }
+
+
+# ---------------------------------------------------------------------------
 # Deprecated pass-throughs
 # ---------------------------------------------------------------------------
 

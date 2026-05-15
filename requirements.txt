@@ -43,3 +43,7 @@ langgraph-checkpoint-postgres
 
 # Phase 5 — Guardrails (spaCy NER for hallucination detection)
 spacy>=3.7
+
+# Phase 6 — RLHF reward model (lightweight fallback when DPO pairs are scarce)
+scikit-learn>=1.4.0
+joblib>=1.3.0

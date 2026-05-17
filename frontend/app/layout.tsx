@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import SidebarShell from "@/components/SidebarShell";
+import HeaderShell from "@/components/HeaderShell";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -11,7 +11,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
-        <SidebarShell>{children}</SidebarShell>
+        <HeaderShell>{children}</HeaderShell>
       </body>
     </html>
   );

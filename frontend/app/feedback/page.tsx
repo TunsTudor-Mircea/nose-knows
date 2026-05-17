@@ -61,13 +61,6 @@ export default function FeedbackPage() {
 
   return (
     <>
-      <div className="topbar">
-        <div className="crumbs">
-          <h1>Feedback</h1>
-          <span className="desc">RLHF seed signal</span>
-        </div>
-      </div>
-
       <div className="page" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
         <div className="stat-strip">
           <div className="stat">

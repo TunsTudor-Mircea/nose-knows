@@ -110,10 +110,6 @@ export default function IngestPage() {
   return (
     <>
       <div className="topbar">
-        <div className="crumbs">
-          <h1>Ingestion</h1>
-          <span className="desc">Upload, validate, embed</span>
-        </div>
         <div className="topbar-right">
           <span>
             {pastJobs.length > 0

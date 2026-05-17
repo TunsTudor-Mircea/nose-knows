@@ -52,10 +52,6 @@ export default function EvalPage() {
   return (
     <>
       <div className="topbar">
-        <div className="crumbs">
-          <h1>Evaluation Lab</h1>
-          <span className="desc">Inspect agent reasoning and quality</span>
-        </div>
         <div className="topbar-right">
           <span>llm-judge · gemma2:2b</span>
           <span>guardrail · detoxify</span>

@@ -222,14 +222,7 @@ export default function ChatPage() {
 
   return (
     <>
-      <div className="topbar">
-        <div className="crumbs">
-          <h1>Consult</h1>
-          <span className="desc">Live recommendation chat</span>
-        </div>
-      </div>
-
-      <div className="page">
+      <div className="page fit">
         <div className="chat-layout">
           {/* Sessions panel */}
           <div className="sessions-panel">

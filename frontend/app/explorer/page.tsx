@@ -72,18 +72,7 @@ export default function ExplorerPage() {
 
   return (
     <>
-      <div className="topbar">
-        <div className="crumbs">
-          <h1>Dataset Explorer</h1>
-          <span className="desc">{total.toLocaleString()} perfumes · embedded · indexed</span>
-        </div>
-        <div className="topbar-right">
-          <span>chroma_db</span>
-          <span>fragrances collection</span>
-        </div>
-      </div>
-
-      <div className="page">
+      <div className="page fit">
         <div style={{ display: "flex", gap: 12, marginBottom: 18 }}>
           <div className="search" style={{ flex: 1 }}>
             <Search size={15} />
@@ -121,7 +110,7 @@ export default function ExplorerPage() {
                 ))}
               </div>
             </div>
-            <div className="scroll-y" style={{ maxHeight: "calc(100vh - 280px)" }}>
+            <div className="scroll-y" style={{ flex: 1, minHeight: 0 }}>
               <table className="tbl">
                 <thead>
                   <tr>

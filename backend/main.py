@@ -716,13 +716,14 @@ def _parse_upload_preview(file_path: str) -> dict:
         head = pd.read_csv(file_path, sep=";", nrows=6, encoding="utf-8", encoding_errors="replace")
 
     columns = [c.strip() for c in head.columns.tolist()]
+    head.columns = columns  # align preview dict keys with detected_columns
     col_set = set(columns)
     missing = sorted(_REQUIRED_COLS - col_set)
 
     with open(file_path, encoding="utf-8", errors="replace") as fh:
         total_rows = max(sum(1 for _ in fh) - 1, 0)  # subtract header line
 
-    preview = head.fillna("").head(5).to_dict("records")
+    preview = head.fillna("").head(5).astype(str).to_dict("records")
     return {
         "filename": Path(file_path).name,
         "detected_columns": columns,

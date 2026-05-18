@@ -23,7 +23,27 @@ export default function IngestPage() {
 
   useEffect(() => {
     loadPastJobs();
+    try {
+      const saved = sessionStorage.getItem("ingest_state");
+      if (saved) {
+        const { step: s, fileName: f, uploadInfo: u } = JSON.parse(saved);
+        // Discard stale data where preview rows have no recognisable values
+        const hasData = u?.preview?.length > 0 &&
+          u.detected_columns?.length > 0 &&
+          Object.values(u.preview[0] ?? {}).some((v) => v !== "" && v !== "nan");
+        if (u && hasData) { setUploadInfo(u); setStep(s ?? 2); setFileName(f ?? null); }
+        else if (u && !hasData) { sessionStorage.removeItem("ingest_state"); }
+      }
+    } catch { /* ignore */ }
   }, []);
+
+  useEffect(() => {
+    if (uploadInfo) {
+      try {
+        sessionStorage.setItem("ingest_state", JSON.stringify({ step, fileName, uploadInfo }));
+      } catch { /* ignore */ }
+    }
+  }, [step, fileName, uploadInfo]);
 
   useEffect(() => {
     return () => {
@@ -70,6 +90,7 @@ export default function IngestPage() {
     setStep(0);
     setCurrentJob(null);
     if (pollRef.current) clearInterval(pollRef.current);
+    try { sessionStorage.removeItem("ingest_state"); } catch { /* ignore */ }
   }
 
   async function startIngest() {
@@ -125,7 +146,7 @@ export default function IngestPage() {
         </div>
       </div>
 
-      <div className="page" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div className="page stack">
         {/* Stepper */}
         <div className="stepper">
           {steps.map((s, i) => (
@@ -401,12 +422,12 @@ export default function IngestPage() {
                           key={col}
                           style={{
                             maxWidth: 160,
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
                             whiteSpace: "nowrap",
+                            overflow: "clip",
+                            textOverflow: "ellipsis",
                           }}
                         >
-                          {String(row[col] ?? "")}
+                          {String(row[col] ?? "—")}
                         </td>
                       ))}
                     </tr>

@@ -17,6 +17,8 @@ function Notes({ list }: { list: string[] }) {
   );
 }
 
+const PAGE_SIZE = 50;
+
 export default function ExplorerPage() {
   const [rows, setRows] = useState<PerfumeListItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -25,33 +27,43 @@ export default function ExplorerPage() {
   const [gender, setGender] = useState<Set<string>>(new Set());
   const [sortBy, setSortBy] = useState<SortKey>("rating");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
 
-  const load = useCallback(async (search: string, genderFilter: string) => {
+  const load = useCallback(async (search: string, genderFilter: string, pageNum: number) => {
     setLoading(true);
     try {
-      const res = await listPerfumes({ search, gender: genderFilter, limit: 60 });
+      const res = await listPerfumes({ search, gender: genderFilter, limit: PAGE_SIZE, offset: pageNum * PAGE_SIZE });
       setTotal(res.total);
       setRows(res.perfumes);
-      if (res.perfumes.length > 0 && !selectedId) setSelectedId(res.perfumes[0].id);
+      setSelectedId(res.perfumes.length > 0 ? res.perfumes[0].id : null);
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
     }
-  }, [selectedId]);
+  }, []);
 
   useEffect(() => {
-    load("", "");
+    load("", "", 0);
   }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSearch = useCallback(() => {
-    load(q, gender.size === 1 ? [...gender][0] : "");
+    setPage(0);
+    load(q, [...gender].join(","), 0);
   }, [q, gender, load]);
 
   // Re-run search whenever gender selection changes.
   useEffect(() => {
-    load(q, gender.size === 1 ? [...gender][0] : "");
+    setPage(0);
+    load(q, [...gender].join(","), 0);
   }, [gender]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+
+  function goToPage(newPage: number) {
+    setPage(newPage);
+    load(q, [...gender].join(","), newPage);
+  }
 
   const sorted = useMemo(() => {
     const r = [...rows];
@@ -100,7 +112,7 @@ export default function ExplorerPage() {
           <div className="card" style={{ padding: 0, overflow: "hidden" }}>
             <div style={{ padding: "12px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--grape-line)" }}>
               <span className="eyebrow">
-                {loading ? "Loading…" : `${total.toLocaleString()} matches · showing ${sorted.length}`}
+                {loading ? "Loading…" : `${total.toLocaleString()} matches · page ${page + 1} of ${totalPages || 1}`}
               </span>
               <div style={{ display: "flex", gap: 6 }}>
                 {[...gender].map((g) => (
@@ -123,7 +135,7 @@ export default function ExplorerPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {sorted.slice(0, 60).map((p, i) => (
+                  {sorted.map((p, i) => (
                     <tr
                       key={p.id}
                       className={selectedId === p.id ? "selected" : ""}
@@ -131,7 +143,7 @@ export default function ExplorerPage() {
                       style={{ cursor: "pointer" }}
                     >
                       <td style={{ color: "var(--ink-3)", fontFamily: "var(--display)", fontSize: 11 }}>
-                        {String(i + 1).padStart(3, "0")}
+                        {String(page * PAGE_SIZE + i + 1).padStart(3, "0")}
                       </td>
                       <td style={{ fontWeight: 500 }}>{p.perfume}</td>
                       <td style={{ color: "var(--ink-2)" }}>{p.brand}</td>
@@ -155,13 +167,34 @@ export default function ExplorerPage() {
                 </tbody>
               </table>
             </div>
+            {totalPages > 1 && (
+              <div style={{ padding: "10px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid var(--grape-line)" }}>
+                <button
+                  className="btn sm"
+                  disabled={page === 0 || loading}
+                  onClick={() => goToPage(page - 1)}
+                >
+                  ← Prev
+                </button>
+                <span className="eyebrow">
+                  {page + 1} / {totalPages}
+                </span>
+                <button
+                  className="btn sm"
+                  disabled={page >= totalPages - 1 || loading}
+                  onClick={() => goToPage(page + 1)}
+                >
+                  Next →
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="facet-rail">
             {selected && (
               <div className="card" style={{ padding: 22 }}>
                 <span className="eyebrow">
-                  Detail · row {String(sorted.findIndex((r) => r.id === selected.id) + 1).padStart(3, "0")}
+                  Detail · row {String(page * PAGE_SIZE + sorted.findIndex((r) => r.id === selected.id) + 1).padStart(3, "0")}
                 </span>
                 <h2 className="display" style={{ fontSize: 22, margin: "10px 0 4px", fontWeight: 400 }}>
                   {selected.perfume}

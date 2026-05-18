@@ -455,7 +455,7 @@ class PerfumeListResponse(BaseModel):
     perfumes: list[PerfumeListItem]
 
 
-def _list_perfumes_sync(limit: int, offset: int, search: str, gender: str) -> dict:
+def _list_perfumes_sync(limit: int, offset: int, search: str, gender: str) -> dict:  # gender = comma-separated
     import os
     import chromadb
 
@@ -480,7 +480,11 @@ def _list_perfumes_sync(limit: int, offset: int, search: str, gender: str) -> di
 
     where: dict = {}
     if gender and gender not in ("any", ""):
-        where["gender"] = {"$eq": gender}
+        genders = [g.strip() for g in gender.split(",") if g.strip()]
+        if len(genders) == 1:
+            where["gender"] = {"$eq": genders[0]}
+        elif len(genders) > 1:
+            where["gender"] = {"$in": genders}
 
     kwargs: dict = {"limit": fetch_limit, "offset": fetch_offset, "include": ["metadatas"]}
     if where:

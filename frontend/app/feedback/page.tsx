@@ -13,15 +13,27 @@ function fmt(iso: string) {
 export default function FeedbackPage() {
   const [items, setItems] = useState<FeedbackEvent[]>([]);
   const [total, setTotal] = useState(0);
+  const [upCount, setUpCount] = useState(0);
+  const [downCount, setDownCount] = useState(0);
   const [filt, setFilt] = useState<"all" | "up" | "down">("all");
   const [loading, setLoading] = useState(true);
+
+  const loadCounts = useCallback(async () => {
+    try {
+      const res = await listFeedback({ limit: 1000 });
+      setTotal(res.total);
+      setUpCount(res.items.filter((e) => e.score === 1).length);
+      setDownCount(res.items.filter((e) => e.score === -1).length);
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
 
   const load = useCallback(async (filter: "all" | "up" | "down") => {
     setLoading(true);
     try {
       const scoreParam = filter === "up" ? "1" : filter === "down" ? "-1" : undefined;
       const res = await listFeedback({ limit: 50, score: scoreParam });
-      setTotal(res.total);
       setItems(res.items);
     } catch (e) {
       console.error(e);
@@ -30,7 +42,10 @@ export default function FeedbackPage() {
     }
   }, []);
 
-  useEffect(() => { load("all"); }, [load]);
+  useEffect(() => {
+    loadCounts();
+    load("all");
+  }, [loadCounts, load]);
 
   function handleFilt(f: "all" | "up" | "down") {
     setFilt(f);
@@ -39,17 +54,18 @@ export default function FeedbackPage() {
 
   const handleDelete = useCallback(async (id: string) => {
     try {
+      const deleted = items.find((e) => e.id === id);
       await deleteFeedback(id);
       setItems((prev) => prev.filter((e) => e.id !== id));
       setTotal((t) => t - 1);
+      if (deleted?.score === 1) setUpCount((n) => n - 1);
+      if (deleted?.score === -1) setDownCount((n) => n - 1);
     } catch (e) {
       console.error(e);
     }
-  }, []);
+  }, [items]);
 
-  const upCount = items.filter((e) => e.score === 1).length;
-  const downCount = items.filter((e) => e.score === -1).length;
-  const approvalRate = items.length > 0 ? (upCount / items.length).toFixed(2) : "—";
+  const approvalRate = total > 0 ? (upCount / total).toFixed(2) : "—";
 
   const intentMap: Record<string, { up: number; total: number }> = {};
   items.forEach((e) => {
@@ -122,13 +138,12 @@ export default function FeedbackPage() {
                     {e.score === 1 ? <ThumbsUp size={16} strokeWidth={1.6} /> : <ThumbsDown size={16} strokeWidth={1.6} />}
                   </span>
                   <button
-                    className="btn ghost sm"
-                    style={{ padding: "2px 6px", marginLeft: 8, color: "var(--ink-3)" }}
+                    className="del"
                     onClick={() => handleDelete(e.id)}
                     aria-label="Delete feedback"
                     title="Delete"
                   >
-                    <Trash2 size={13} />
+                    <Trash2 size={14} strokeWidth={1.6} />
                   </button>
                 </div>
               ))}

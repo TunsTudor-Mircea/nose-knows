@@ -274,8 +274,10 @@ a { color: inherit; text-decoration: none; }
   border-radius: var(--r-sm); overflow: hidden; }
 .seg button { background: var(--paper); border: none; padding: 8px 4px; font-family: var(--display);
   font-weight: 500; font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase;
-  color: var(--ink-2); border-right: 1px solid var(--grape-line); }
+  color: var(--ink-2); border-right: 1px solid var(--grape-line);
+  transition: background 0.15s, color 0.15s; }
 .seg button:last-child { border-right: none; }
+.seg button:hover:not(.on) { background: var(--grape-soft); color: var(--ink); }
 .seg button.on { background: var(--ink); color: var(--smoke); }
 .toggle { display: flex; justify-content: space-between; align-items: center; }
 .switch { width: 36px; height: 20px; background: var(--smoke-3); border-radius: 999px;
@@ -370,16 +372,20 @@ a { color: inherit; text-decoration: none; }
 /* ── Feedback ─────────────────────────────────────────── */
 .fb-grid { display: grid; grid-template-columns: 1fr 360px; gap: 24px; }
 .timeline { display: flex; flex-direction: column; }
-.event { display: grid; grid-template-columns: 90px 1fr auto; gap: 18px; padding: 18px 0;
-  border-top: 1px solid var(--grape-line); }
+.event { display: grid; grid-template-columns: 90px 1fr auto auto; gap: 18px; align-items: center;
+  padding: 18px 0; border-top: 1px solid var(--grape-line); }
 .event:first-child { border-top: none; }
-.event .ts { font-family: var(--display); font-size: 10.5px; letter-spacing: 0.12em; color: var(--ink-3); }
+.event .ts { font-family: var(--display); font-size: 10.5px; letter-spacing: 0.12em; color: var(--ink-3); align-self: start; padding-top: 6px; }
 .event .body .q { font-family: var(--display); font-weight: 500; font-size: 13px; margin-bottom: 4px; }
 .event .body .resp { color: var(--ink-2); font-size: 12.5px; line-height: 1.5; }
-.event .verdict { align-self: start; width: 32px; height: 32px; display: inline-flex;
+.event .verdict { width: 32px; height: 32px; display: inline-flex;
   align-items: center; justify-content: center; border-radius: 999px; }
 .event .verdict.up { background: rgba(78,168,114,0.18); color: #2f7a44; }
 .event .verdict.down { background: var(--bordeaux-soft); color: var(--bordeaux); }
+.event .del { width: 32px; height: 32px; display: inline-flex; align-items: center;
+  justify-content: center; border-radius: 999px; border: none; background: var(--smoke-2);
+  color: var(--ink-3); cursor: pointer; transition: background 0.15s, color 0.15s; }
+.event .del:hover { background: var(--bordeaux-soft); color: var(--bordeaux); }
 
 /* ── Misc ─────────────────────────────────────────────── */
 .spinner { width: 14px; height: 14px; border: 1.5px solid var(--grape-line-2);

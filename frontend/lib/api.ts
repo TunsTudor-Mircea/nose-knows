@@ -126,6 +126,26 @@ export const getIngestStatus = (jobId: string): Promise<IngestJob> =>
 
 export const listDatasets = (): Promise<IngestDataset[]> => req("/ingest/datasets");
 
+// ── Eval ─────────────────────────────────────────────────────────────────
+
+export const getEvalResults = (): Promise<EvalResult[]> => req("/eval/results");
+
+export interface EvalResult {
+  id: string;
+  query: string;
+  intent: string;
+  response: string;
+  retrieved: string;
+  hyde_doc: string | null;
+  trace: { tool: string; tool_input: string; observation: string }[];
+  agent_latency_ms: number;
+  scores?: { relevance: number; groundedness: number; helpfulness: number };
+  judge_reasoning?: string;
+  tag: string;
+  run_id: string;
+  error?: string;
+}
+
 // ── Health ────────────────────────────────────────────────────────────────
 
 export const checkHealth = async (): Promise<boolean> => {

@@ -955,6 +955,30 @@ async def rlhf_export(
 
 
 # ---------------------------------------------------------------------------
+# Eval results
+# ---------------------------------------------------------------------------
+
+EVAL_RESULTS_PATH = Path(os.getenv("EVAL_RESULTS_PATH", "data/eval_results.jsonl"))
+
+
+@app.get("/eval/results")
+async def get_eval_results() -> list[dict]:
+    """Return all rows from eval_results.jsonl, newest run last."""
+    if not EVAL_RESULTS_PATH.exists():
+        return []
+    rows = []
+    with EVAL_RESULTS_PATH.open() as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                try:
+                    rows.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # Deprecated pass-throughs
 # ---------------------------------------------------------------------------
 

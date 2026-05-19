@@ -14,7 +14,7 @@ services:
     volumes:
       - pg-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U nosknows"]
+      test: [ "CMD-SHELL", "pg_isready -U nosknows" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -28,8 +28,16 @@ services:
       - "11434:11434"
     volumes:
       - ollama-data:/root/.ollama
+    #only with gpu, don't use it on cpu because it is very slow
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
     healthcheck:
-      test: ["CMD", "ollama", "list"]
+      test: [ "CMD", "ollama", "list" ]
       interval: 15s
       timeout: 10s
       retries: 10
@@ -40,10 +48,10 @@ services:
   model-init:
     image: ollama/ollama:latest
     container_name: nosknows-model-init
-    profiles: ["setup"]
+    profiles: [ "setup" ]
     environment:
       OLLAMA_HOST: http://ollama:11434
-    entrypoint: ["ollama", "pull"]
+    entrypoint: [ "ollama", "pull" ]
     command: "${OLLAMA_MODEL:-gemma2:2b}"
     depends_on:
       ollama:
@@ -82,8 +90,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c",
-             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" ]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -111,7 +118,7 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     container_name: nosknows-ingest
-    profiles: ["tools"]
+    profiles: [ "tools" ]
     command: >
       sh -c "python -m src.data_pipeline &&
              python -m src.rag.build_index"
@@ -132,7 +139,7 @@ services:
       context: .
       dockerfile: backend/Dockerfile.finetune
     container_name: nosknows-finetune
-    profiles: ["tools"]
+    profiles: [ "tools" ]
     command: python -m src.finetune.train
     environment:
       SLM_MODEL_ID: ${SLM_MODEL_ID:-google/gemma-2-2b-it}

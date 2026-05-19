@@ -1,144 +1,157 @@
 # Dataset Generation — NoseKnows
 
-This document describes the synthetic dataset generation phase for NoseKnows in detail. The goal of this phase is to take the raw Fragrantica CSV and produce a structured JSONL file of training conversations that will be used to fine-tune Gemma 4. Everything happens inside a single Kaggle notebook, split across two logical phases: preprocessing and generation.
+This document describes the synthetic dataset generation phase for NoseKnows. The goal is to take the raw Fragrantica CSV and produce a structured JSONL file of training conversations for fine-tuning Gemma 4. Everything runs inside a single Kaggle notebook, split across two phases: preprocessing and generation.
 
 ---
 
 ## Why synthetic data
 
-The Fragrantica dataset contains perfume records, not conversations. A language model trained directly on raw CSV rows would not learn anything useful about how to talk to a user. What we actually need is thousands of examples of the following shape: a user asks something about fragrance, and a knowledgeable assistant answers by grounding the recommendation in specific notes and accords.
+The Fragrantica dataset contains perfume records, not conversations. A model trained directly on raw CSV rows would not learn anything useful about talking to a user. What we need is thousands of examples of a specific shape: a user asks something about fragrance, and a knowledgeable assistant answers by grounding the recommendation in actual notes and accords.
 
-Since no such conversational dataset exists for perfumery at this scale, we generate it synthetically using a larger, more capable model, Qwen3-8B, to write the conversations for us. This is a well-established technique in LLM fine-tuning: use a strong model to produce high-quality training data for a smaller one. The quality of this synthetic data is the single biggest factor in how well the fine-tuned model performs, which is why so much of this pipeline is devoted to getting it right.
+No such conversational dataset exists for perfumery at this scale, so we generate it synthetically using a larger model, Qwen3-8B, to write the conversations. This is a well-established technique in LLM fine-tuning: use a strong model to produce high-quality training data for a smaller one. The quality of this synthetic data is the single biggest factor in how well the fine-tuned model performs.
+
+---
+
+## Hardware
+
+The notebook runs on Kaggle's dual T4 GPU configuration. Each T4 has 16 GB VRAM; `device_map="auto"` splits the model across both cards automatically. The P100 is not suitable because PyTorch 2.10+ does not support its CUDA capability (sm_60), causing all generation calls to fail silently.
 
 ---
 
 ## Phase 1 — Preprocessing
 
-Before any generation happens, the raw CSV goes through a preprocessing pipeline that runs entirely on CPU and takes about five minutes. Its job is to remove everything that would produce weak or redundant training examples.
+Before generation starts, the raw CSV goes through a preprocessing pipeline that runs on CPU and takes about five minutes. It is fully deterministic, so re-running it on session resume costs nothing.
 
 ### Loading
 
-The CSV is semicolon-separated and latin-1 encoded, with 24,063 rows. Rows with missing perfume names, missing brands, no notes in any tier, or no rating count are dropped immediately since they cannot produce a meaningful training example.
+The CSV is semicolon-separated and latin-1 encoded, with 24,063 rows. Rows missing perfume names, brands, note fields in all tiers, or rating counts are dropped immediately.
 
 ### Normalization
 
-Several fields need cleaning before they can be used. Note fields (top, middle, base) are parsed into proper Python lists: parenthetical qualifiers like "bergamot (Italian)" are stripped to just "bergamot", and separators like "and" are unified to commas. The rating value column uses comma-decimal format ("1,42") which is converted to standard floats. Gender values are unified to one of three categories: men, women, or unisex. Implausible year values outside the range 1900 to 2024 are set to NaN rather than dropping the row, since year is useful context but not required for generation.
+Several fields need cleaning before use. Note fields (top, middle, base) are parsed into Python lists: parenthetical qualifiers like "bergamot (Italian)" are stripped to just "bergamot", and "and" separators are unified to commas. The rating value column uses comma-decimal format ("1,42") which is converted to standard floats. Gender values are unified to men, women, or unisex. Implausible year values outside 1900 to 2024 are set to NaN rather than dropping the row, since year is useful context but not mandatory.
 
 ### Quality filters
 
-Four filters are applied in sequence. First, perfumes with fewer than 50 ratings are removed. Below this threshold the rating is too unreliable to be meaningful, and the perfume is too niche to be worth recommending. Second, each row must have either at least two main accords or at least two top notes, otherwise there is not enough information to build a grounded assistant turn. Third, the total count of distinct notes across all three tiers must be at least four. Fourth, placeholder profiles are dropped: if every note in the record is just an accord name repeated (for example, top is "floral", middle is "woody", base is "musk"), the note fields add nothing beyond what the accord columns already say, and the generator would have nothing specific to reason about.
+Four filters run in sequence. Perfumes with fewer than 50 ratings are removed — below this threshold the rating is unreliable and the perfume is too niche to recommend. Each row must have at least two main accords or at least two top notes, otherwise there is not enough information for a grounded assistant turn. The total distinct notes across all three tiers must be at least four. Finally, placeholder profiles are dropped: if every note in the record is just an accord name repeated, the note fields add nothing beyond what the accord columns already say.
 
 ### Deduplication
 
-This is the most important preprocessing step. The Fragrantica dataset contains many flanker releases: variations of the same fragrance that differ by only one or two middle notes. Training on all of them would fill the dataset with near-identical examples and hurt generalization.
+Within each brand group, every pair of perfumes is compared by the symmetric difference of their full note fingerprints (the union of top, middle and base notes as a frozenset). If two perfumes from the same brand differ by two notes or fewer, one is dropped. The higher-rated one is kept. This removes flanker releases that would otherwise fill the dataset with near-identical examples. The comparison is O(N²) within each brand group, which is fine because no single brand has thousands of entries.
 
-Within each brand group, every pair of perfumes is compared by the symmetric difference of their full note fingerprints (the union of top, middle and base notes as a set). If two perfumes from the same brand differ by two notes or fewer, one of them is dropped. The one with the higher rating count is kept, since it has more real-world validation. The comparison is O(N²) within each brand group, which is acceptable because no single brand has thousands of entries.
+### Actual scale after preprocessing
+
+Running on the real CSV produced these numbers:
+
+- Input rows: 24,063
+- After structural drop: 24,063 (none dropped at this stage)
+- After quality filters: 18,267
+- After deduplication: 17,804
+- Gold perfumes (rating >= 200): 8,717
+- Silver perfumes (50 <= rating < 200): 9,087
+- Total training examples: 26,521
 
 ### Tier assignment
 
-After deduplication, each remaining perfume is assigned a tier based on its rating count. Perfumes with 200 or more ratings are classified as gold and will have two training examples generated from them. Perfumes between 50 and 199 ratings are silver and get one example. Gold perfumes are more widely known and have more real-world user context behind their ratings, so generating more examples from them is intentional.
+Perfumes with 200 or more ratings are gold and get two training examples generated. Perfumes between 50 and 199 ratings are silver and get one. Gold perfumes are more widely known, have more real-world reception behind their ratings, and are more likely to be asked about by actual users.
 
 ### Question type assignment
 
-The full pool of training examples is assigned question types using a largest-remainder allocation, which guarantees the distribution is exact rather than approximate. The five types and their target proportions are: occasion_based at 25%, mood_based at 25%, note_based at 20%, comparison at 15%, and structured_preference at 15%. The first three cover straightforward queries; the last two are harder and require the model to reason about relationships between fragrances or between user preferences and note profiles. After allocation, types are interleaved across the sequence so no single type clusters at the beginning or end of any processing run.
+Training examples are assigned question types using largest-remainder allocation, which guarantees the distribution is exact rather than approximate. The five types and their proportions are: occasion_based at 25%, mood_based at 25%, note_based at 20%, comparison at 15%, and structured_preference at 15%. After allocation, types are interleaved so no single type clusters at one end of the dataset.
 
 ---
 
 ## Phase 2 — Generation
 
-Once preprocessing is done, the notebook loads Qwen3-8B and runs the generation loop.
-
 ### Model loading
 
-Qwen3-8B is loaded from HuggingFace using 4-bit NF4 quantization via bitsandbytes. This keeps peak VRAM usage under 8 GB, leaving headroom for the KV cache during long thinking traces. The model is placed on the single P100 GPU using `device_map="auto"`. The HuggingFace token is read from Kaggle secrets so it is never hardcoded.
+Qwen3-8B is loaded from HuggingFace using 4-bit NF4 quantization via bitsandbytes 0.46.1. This version is the minimum required by the installed transformers build. The correct loading configuration does not pass a top-level `dtype` argument alongside `quantization_config` — doing so causes the new transformers loading pipeline to cast weights to bfloat16 before quantizing, which spikes VRAM usage and causes OOM. The dtype is controlled entirely through `bnb_4bit_compute_dtype` inside `BitsAndBytesConfig`.
 
-The model is set to eval mode immediately after loading. No gradients are needed during generation, and keeping the model in train mode would waste memory and slow things down.
+Setting `PYTORCH_ALLOC_CONF=expandable_segments:True` before loading reduces memory fragmentation on T4.
 
-### Why P100 and not dual T4
+The HuggingFace token is read from Kaggle secrets via `UserSecretsClient().get_secret("HF_TOKEN")`. Using `os.environ.get("HF_TOKEN")` does not work on Kaggle — secrets require the `kaggle_secrets` API.
 
-The P100 has 16 GB of VRAM, the same as a single T4, but significantly higher memory bandwidth. More relevant here: dual T4 on Kaggle uses NVLink to connect two GPUs, but this setup is designed for training models that do not fit on one GPU, not for inference throughput. For a single-batch generation task, the inter-GPU communication overhead actually makes dual T4 slower than a single card. P100 is the right choice.
+After loading, VRAM is verified across both GPUs. If total allocated is under 3 GB, quantization silently failed and the notebook raises immediately rather than letting thousands of batches fail. The correct allocation is approximately 6 GB total across both cards.
 
 ### Thinking mode
 
-Qwen3-8B has a built-in reasoning mode that produces an internal chain of thought before generating the final output. This is activated by passing `enable_thinking=True` to `apply_chat_template`. The thinking trace is not included in the output the model produces for the user turn; it is used internally to reason about which notes to highlight, how to connect them to the query, and what kind of person would ask the question.
+Qwen3-8B has a built-in reasoning mode that produces an internal chain of thought before generating output. This is activated by passing `enable_thinking=True` to `apply_chat_template`. The thinking trace is stripped from the output before JSON parsing — it is used internally to reason about which notes to highlight and how to connect them to the query.
 
-The thinking budget is capped at 512 tokens. Without a cap, Qwen can produce reasoning traces of 1,500 tokens or more per call, which would make the full generation run take far longer than the available Kaggle GPU quota. At 512 tokens the model still reasons meaningfully but is forced to be concise. If the installed version of transformers does not support the `thinking_budget` parameter yet, the notebook falls back gracefully and runs without the cap.
+The thinking budget is capped at 512 tokens. Without a cap, reasoning traces can reach 1,500 tokens or more per call, which would make the full run far too slow.
+
+The `apply_chat_template` call returns a `BatchEncoding` object in newer transformers versions, not a plain tensor. Passing a `BatchEncoding` directly to `model.generate()` raises `AttributeError` because the generate function tries to access `.shape[0]` on it. The fix is to extract `input_ids` explicitly after the template call:
+
+```python
+if hasattr(template_output, "input_ids"):
+    input_ids = template_output.input_ids.to(model.device)
+elif isinstance(template_output, dict):
+    input_ids = template_output["input_ids"].to(model.device)
+else:
+    input_ids = template_output.to(model.device)
+```
+
+The `except` clause that catches fallback cases catches both `TypeError` and `AttributeError`, since different transformers versions raise different exception types when thinking parameters are unsupported.
 
 ### Batching
 
-Each generation call processes five perfumes at once. The call includes the preprocessed fields for each perfume (name, brand, gender, top notes, middle notes, base notes, accords, year where available, perfumer where available) and a set of instructions specifying how many examples to generate for each perfume and which question types to use. The question types were already assigned deterministically during preprocessing, so the distribution across the full dataset is guaranteed regardless of how many sessions the generation takes.
-
-Five perfumes per call is a deliberate balance. Fewer perfumes per call means more overhead and slower throughput. More than five and the model starts confusing which notes belong to which perfume inside the same call, which produces hallucinated recommendations. Five is the practical upper limit for reliable grounding.
+Each generation call processes five perfumes. The call includes name, brand, gender, top notes, middle notes, base notes, accords, year where available, and perfumer where available. Instructions specify how many examples to generate per perfume and which question types to use. Five perfumes per call balances throughput against the risk of the model confusing which notes belong to which perfume inside a single call.
 
 ### The generator prompt
 
-Qwen3-8B receives two prompts. The system prompt explains its role as a training data factory: it is not answering a user, it is writing conversations for a future model to learn from. It describes the constraints (no invented notes, 3 to 5 sentences, plain prose in the assistant turn) and the output format (a raw JSON array, no markdown, no preamble).
-
-Three few-shot examples are included covering mood_based, note_based and structured_preference queries. Occasion_based and comparison are left uncovered intentionally: the model must generalize to those types from the system prompt description rather than copying a template. This produces more varied outputs for those two types.
-
-The user prompt for each call contains the actual perfume records and the generation instructions. It changes every call; the system prompt stays constant.
+Qwen3-8B receives a fixed system prompt explaining its role as a data factory and a per-call user prompt containing the actual records and instructions. The system prompt includes three few-shot examples covering mood_based, note_based and structured_preference. Occasion_based and comparison are left out intentionally so the model generalises to those types rather than copying a template.
 
 ### The NoseKnows system prompt
 
-Every training example in the final dataset includes a fixed system prompt that Gemma 4 will see at inference time. This prompt is never generated by Qwen; it is injected programmatically by the Python script and is byte-for-byte identical across all examples. This matters for head-only fine-tuning: the trainable layers see the same system context every time and learn to condition their output on it consistently.
-
-The system prompt reads: "You are NoseKnows, a fragrance consultant who knows perfumery inside out. When someone describes what they are after, whether a mood, an occasion, or notes they love or cannot stand, you recommend real perfumes by name and brand and explain exactly why they fit, grounding your answer in the actual notes and accords. Warm, confident, specific. Never vague, never a catalogue. 3 to 5 sentences."
+Every training example in the final dataset includes a fixed system prompt that Gemma 4 will see at inference time. This is never generated by Qwen — it is injected programmatically and is byte-for-byte identical across all 26,521 examples. This matters for head-only fine-tuning: the trainable layers always see the same persona context and learn to condition their output on it consistently.
 
 ### Defensive parsing
 
-Qwen3-8B's raw output is not clean JSON. It starts with a `<think>...</think>` block containing the internal reasoning trace, followed by the actual output. The parsing pipeline strips the thinking block first, then removes any markdown fences the model may have added despite being told not to, then attempts `json.loads()` on the cleaned string. If that fails, a regex extraction looks for the outermost `[...]` block and tries again. If both strategies fail, the batch is logged to `failures.jsonl` and the loop continues. The generation never crashes on a single bad output.
+Qwen3-8B's raw output starts with a `<think>...</think>` block followed by the actual JSON. The parsing pipeline strips the thinking block first, then strips known Qwen3 special tokens (`<|im_end|>`, `<|endoftext|>`, `<|im_start|>`) that survive `skip_special_tokens=False` decoding and would otherwise corrupt the regex fallback, then strips markdown fences, then attempts `json.loads()`, then falls back to a regex extraction of the outermost `[...]` block. If all strategies fail, the batch is logged to `failures.jsonl` with the full raw output (capped at 3,000 chars) and generation continues.
 
-Each parsed example is also validated: both the `user` and `assistant` fields must be non-empty strings. Partially malformed outputs where some examples are valid are saved; only the invalid ones are discarded.
+Each parsed example is validated: both `user` and `assistant` must be non-empty strings. Malformed entries are dropped silently; valid ones from a partial batch are saved.
 
 ### Checkpointing
 
-After every batch of five perfumes, three things happen: valid examples are appended to `dataset.jsonl`, a failure record is appended to `failures.jsonl` if the batch failed, and `checkpoint.json` is updated with the index of the next batch to process and the current counts of written examples and failures.
+After every batch, valid examples are appended to `dataset.jsonl` in append mode, and `checkpoint.json` is updated with the next batch index and current counts. On session resume, preprocessing re-runs in five minutes, then the generation loop reads the checkpoint and skips already-processed batches. Losing a session costs at most one batch of five perfumes.
 
-When the notebook is re-run after a Kaggle session ends, the preprocessing phase re-runs in about five minutes on CPU (it is fast and deterministic). The generation loop then reads `checkpoint.json`, calculates which batch to start from, and skips everything already processed. The `dataset.jsonl` file is opened in append mode, so nothing is overwritten. This means losing a session costs at most one batch of five perfumes, not the entire run.
-
-The ETA is printed every ten batches so it is easy to track how many sessions the full run will need.
+Progress is printed every ten batches with a rolling ETA. A tqdm bar shows batch-level progress continuously.
 
 ---
 
-## Output format
+## Dataset item structure
 
-Each line of `dataset.jsonl` is a JSON object with two keys. The `messages` key contains a list of three role-content pairs (system, user, assistant) in the standard chat template format that `trl.SFTTrainer` expects. The `_meta` key contains traceability information: the perfume name, brand, question type and tier. This field is not part of the messages array and is ignored by the trainer, but it is useful for auditing the dataset after generation if something looks wrong.
+Each line of `dataset.jsonl` is a self-contained JSON object. The `messages` array follows the standard chat template format that `trl.SFTTrainer` with `apply_chat_template` expects out of the box. The `_meta` field sits outside the messages array and is ignored by the trainer automatically, but is useful for auditing the dataset after generation.
 
-A typical training example looks like this:
+A complete item looks like this:
 
 ```json
 {
   "messages": [
     {
       "role": "system",
-      "content": "You are NoseKnows, a fragrance consultant..."
+      "content": "You are NoseKnows, a fragrance consultant who knows perfumery inside out. When someone describes what they are after, whether a mood, an occasion, or notes they love or cannot stand, you recommend real perfumes by name and brand and explain exactly why they fit, grounding your answer in the actual notes and accords. Warm, confident, specific. Never vague, never a catalogue. 3 to 5 sentences."
     },
     {
       "role": "user",
-      "content": "I want something dark and a little indulgent, the kind of scent that makes a room notice when you walk in."
+      "content": "I want something that feels like a quiet evening by the fireplace, maybe a little mysterious."
     },
     {
       "role": "assistant",
-      "content": "Tom Ford Black Orchid is probably what you are describing. It opens with black truffle and ylang ylang, which sounds unusual but lands as deeply opulent on skin, and the heart is built around orchid and blackcurrant before a base of dark chocolate, patchouli and sandalwood takes over. The whole thing has this dense, almost edible quality that somehow never tips into sweetness. Very much a statement fragrance."
+      "content": "Shalimar by Guerlain was basically made for that mood. It opens with bergamot, then softens into iris and jasmine before settling into a long base of vanilla, opoponax and smoky incense. There is something almost cinematic about how it develops on skin, intimate and unhurried. A timeless choice for exactly that kind of evening."
     }
   ],
   "_meta": {
-    "perfume": "black orchid",
-    "brand": "tom ford",
+    "perfume": "shalimar",
+    "brand": "guerlain",
     "question_type": "mood_based",
     "tier": "gold"
   }
 }
 ```
 
----
-
-## Expected scale
-
-Starting from 24,063 raw rows, the preprocessing pipeline is expected to produce somewhere between 12,000 and 14,000 perfumes after all filters and deduplication. With gold rows producing two examples and silver rows producing one, the total training set should land around 18,000 to 21,000 examples. At five perfumes per batch with thinking mode on a P100, the full generation run takes roughly 25 to 35 hours across three Kaggle sessions.
+The system field is identical across every line in the file. The user field is generated by Qwen3-8B and varies in phrasing, formality and length. The assistant field is also generated by Qwen3-8B and always contains the perfume name, the brand, at least two or three specific notes from the actual record, and a reason tied to the user's query. The `_meta` field records which perfume the example came from, which question type was assigned, and whether it was a gold or silver row.
 
 ---
 
 ## Files produced
 
-`dataset.jsonl` is the main output and the only file needed for fine-tuning. `failures.jsonl` contains the raw outputs of batches Qwen failed to produce valid JSON for; these can be retried individually at a smaller batch size if needed. `checkpoint.json` tracks generation progress and should not be deleted between sessions. `generation_report.json` is written at the end of a complete run and summarizes all preprocessing and generation statistics.
+`dataset.jsonl` is the main output and the only file needed for fine-tuning. `failures.jsonl` contains raw outputs of batches where JSON parsing failed completely; these can be retried at batch size 1 if needed. `checkpoint.json` tracks generation progress and must not be deleted between sessions. `generation_report.json` is written at the end of a complete run and summarises all preprocessing and generation statistics.

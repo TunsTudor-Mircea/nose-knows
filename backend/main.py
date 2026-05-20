@@ -66,11 +66,7 @@ from src.tools.guard import _blocklist_check  # noqa: E402
 # ---------------------------------------------------------------------------
 
 class FiltersModel(BaseModel):
-    gender: str | None = Field(None, description="women | men | unisex")
-    brand: str | None = None
-    accord: str | None = None
     top_k: int = Field(5, ge=1, le=20)
-    use_hyde: bool = True
 
 
 class PerfumeCard(BaseModel):
@@ -226,11 +222,7 @@ def _log_feedback_file(entry: dict) -> None:
 
 
 def _build_filters(f: FiltersModel) -> dict:
-    result: dict = {"top_k": f.top_k, "use_hyde": f.use_hyde}
-    if f.gender: result["gender"] = f.gender
-    if f.brand: result["brand"] = f.brand
-    if f.accord: result["accord"] = f.accord
-    return result
+    return {"top_k": f.top_k}
 
 
 # ---------------------------------------------------------------------------

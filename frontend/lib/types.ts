@@ -37,11 +37,7 @@ export interface SessionChatResponse {
 }
 
 export interface Filters {
-  gender: string;
-  accord: string;
-  brand: string;
   top_k: number;
-  use_hyde: boolean;
 }
 
 export interface PerfumeListItem {

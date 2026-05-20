@@ -1,9 +1,8 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, X, ThumbsUp, ThumbsDown, Send, StopCircle } from "lucide-react";
+import { Plus, X, ThumbsUp, ThumbsDown, Send, StopCircle, Settings2 } from "lucide-react";
 import Markdown from "@/components/Markdown";
 import PerfumeCard from "@/components/PerfumeCard";
-import BrandCombobox from "@/components/BrandCombobox";
 import {
   createSession, listSessions, deleteSession,
   getMessages, sendChat, postFeedback,
@@ -11,7 +10,7 @@ import {
 import type { Session, Message, Filters } from "@/lib/types";
 
 const DEFAULT_FILTERS: Filters = {
-  gender: "any", accord: "any", brand: "", top_k: 5, use_hyde: true,
+  top_k: 5,
 };
 
 const STARTERS = [
@@ -51,6 +50,7 @@ export default function ChatPage() {
   const [draft, setDraft] = useState("");
   // Track which session ID is currently waiting for a response (null = idle).
   const [thinkingFor, setThinkingFor] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [feedback, setFeedback] = useState<Record<string, 1 | -1>>({});
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const streamRef = useRef<HTMLDivElement>(null);
@@ -192,12 +192,7 @@ export default function ChatPage() {
     abortRef.current = controller;
 
     try {
-      const f: Filters = {
-        ...filters,
-        gender: filters.gender === "any" ? "" : filters.gender,
-        accord: filters.accord === "any" ? "" : filters.accord,
-      };
-      const resp = await sendChat(sid, q, f, controller.signal);
+      const resp = await sendChat(sid, q, filters, controller.signal);
 
       const asst: Message = {
         id: resp.message_id,
@@ -360,13 +355,24 @@ export default function ChatPage() {
                     <span className="thinking-dot" />
                     <span className="thinking-dot" />
                     <span className="thinking-dot" />
-                    classify · hyde · retrieve · recommend · validate
                   </span>
                 </div>
               )}
             </div>
 
-            <div className="chat-input-wrap">
+            <div className="chat-input-wrap" style={{ position: "relative" }}>
+              {settingsOpen && (
+                <div className="chat-settings-popover">
+                  <h4>Top K candidates</h4>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <input className="slider" type="range" min={1} max={20}
+                      value={filters.top_k}
+                      onChange={(e) => setFilters((f) => ({ ...f, top_k: +e.target.value }))}
+                      style={{ flex: 1 }} />
+                    <span style={{ fontFamily: "var(--display)", fontWeight: 300, fontSize: 18, color: "var(--ink)", minWidth: 24, textAlign: "right" }}>{filters.top_k}</span>
+                  </div>
+                </div>
+              )}
               <div className="composer">
                 <textarea
                   rows={1}
@@ -385,61 +391,15 @@ export default function ChatPage() {
                   </button>
                 )}
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontFamily: "var(--display)", fontSize: 10.5, letterSpacing: "0.12em", color: "var(--ink-3)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8, fontFamily: "var(--display)", fontSize: 10.5, letterSpacing: "0.12em", color: "var(--ink-3)" }}>
                 <span>Shift + Enter for newline</span>
-                <span>{filters.use_hyde ? "HyDE on" : "HyDE off"} · top-{filters.top_k} · {filters.gender}</span>
+                <button className={`chat-settings-btn${settingsOpen ? " open" : ""}`} onClick={() => setSettingsOpen((o) => !o)} aria-label="Search settings">
+                  <Settings2 size={13} />
+                </button>
               </div>
             </div>
           </div>
 
-          {/* Filters panel */}
-          <aside className="filters">
-            <div>
-              <h3>Gender</h3>
-              <div className="seg">
-                {["any", "women", "men"].map((g) => (
-                  <button key={g} className={filters.gender === g ? "on" : ""}
-                    onClick={() => setFilters((f) => ({ ...f, gender: g }))}>{g}</button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <h3>Top K candidates</h3>
-              <div className="slider-wrap">
-                <input className="slider" type="range" min={1} max={20}
-                  value={filters.top_k}
-                  onChange={(e) => setFilters((f) => ({ ...f, top_k: +e.target.value }))} />
-                <span className="slider-val">{filters.top_k}</span>
-              </div>
-            </div>
-            <div>
-              <div className="toggle">
-                <h3 style={{ margin: 0 }}>HyDE retrieval</h3>
-                <button className={`switch${filters.use_hyde ? " on" : ""}`}
-                  onClick={() => setFilters((f) => ({ ...f, use_hyde: !f.use_hyde }))} />
-              </div>
-              <p style={{ fontSize: 11, color: "var(--ink-3)", margin: "8px 0 0", lineHeight: 1.5 }}>
-                Generates a hypothetical perfume profile before searching ChromaDB.
-              </p>
-            </div>
-            <div>
-              <h3>Brand</h3>
-              <BrandCombobox
-                value={filters.brand}
-                onChange={(brand) => setFilters((f) => ({ ...f, brand }))}
-              />
-            </div>
-            <div style={{ marginTop: "auto", paddingTop: 18, borderTop: "1px solid var(--grape-line)" }}>
-              <h3>Try a starter</h3>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
-                {STARTERS.map((s) => (
-                  <button key={s} className="chip"
-                    style={{ justifyContent: "flex-start", textAlign: "left", padding: "8px 12px", cursor: "pointer" }}
-                    onClick={() => setDraft(s)}>{s}</button>
-                ))}
-              </div>
-            </div>
-          </aside>
         </div>
       </div>
     </>

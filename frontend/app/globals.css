@@ -171,7 +171,7 @@ a { color: inherit; text-decoration: none; }
 .scroll-y::-webkit-scrollbar-track { background: transparent; }
 
 /* ── Chat ─────────────────────────────────────────────── */
-.chat-layout { display: grid; grid-template-columns: 220px 1fr 280px; gap: 20px;
+.chat-layout { display: grid; grid-template-columns: 220px 1fr; gap: 20px;
   flex: 1; min-height: 0; }
 .sessions-panel { background: var(--paper); border: 1px solid var(--grape-line);
   border-radius: var(--r-lg); display: flex; flex-direction: column; overflow: hidden; }
@@ -298,6 +298,15 @@ a { color: inherit; text-decoration: none; }
   background: var(--ink); border-radius: 999px; cursor: pointer; }
 .slider-val { font-family: var(--display); font-weight: 300; font-size: 22px;
   letter-spacing: -0.02em; color: var(--ink); width: 32px; text-align: right; }
+.chat-settings-btn { background: none; border: none; padding: 3px 5px; color: var(--ink-3);
+  cursor: pointer; display: flex; align-items: center; border-radius: 4px;
+  transition: color 0.15s, background 0.15s; }
+.chat-settings-btn:hover, .chat-settings-btn.open { color: var(--ink); background: var(--grape-soft); }
+.chat-settings-popover { position: absolute; bottom: calc(100% + 6px); right: 24px;
+  background: var(--paper); border: 1px solid var(--grape-line); border-radius: var(--r);
+  padding: 12px 14px 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.10); width: 190px; z-index: 20; }
+.chat-settings-popover h4 { font-family: var(--display); font-size: 9.5px; letter-spacing: 0.2em;
+  text-transform: uppercase; color: var(--ink-3); margin: 0 0 10px; font-weight: 500; }
 
 /* ── Brand combobox ───────────────────────────────────── */
 .brand-combobox { position: relative; }

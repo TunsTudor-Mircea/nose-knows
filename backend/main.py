@@ -342,7 +342,8 @@ async def session_chat(
         content=request.query,
     )
     db.add(user_msg)
-    await db.flush()
+    await db.commit()
+    await db.refresh(user_msg)
 
     # Run graph (blocking — offload to thread)
     filters = _build_filters(request.filters)

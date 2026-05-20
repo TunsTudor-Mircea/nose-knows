@@ -43,7 +43,10 @@ function fmt(iso: string) {
 
 export default function ChatPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(() => {
+    try { return typeof window !== "undefined" ? sessionStorage.getItem("nosknows_active_session") : null; }
+    catch { return null; }
+  });
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   // Track which session ID is currently waiting for a response (null = idle).
@@ -54,12 +57,17 @@ export default function ChatPage() {
   const abortRef = useRef<AbortController | null>(null);
   // Always reflects the latest activeId inside async callbacks without stale closure.
   const activeIdRef = useRef<string | null>(null);
+  // True when thinkingFor was set by detecting a pending response on mount (not by handleSend).
+  const pendingPollRef = useRef(false);
 
-  // Load sessions on mount
+  // Load sessions on mount; restore saved session or fall back to most recent
   useEffect(() => {
     listSessions().then((s) => {
       setSessions(s);
-      if (s.length > 0) setActiveId(s[0].id);
+      setActiveId((prev) => {
+        if (prev && s.find((sess) => sess.id === prev)) return prev;
+        return s.length > 0 ? s[0].id : null;
+      });
     }).catch(console.error);
     setFeedback(loadFeedbackCache());
   }, []);
@@ -67,11 +75,42 @@ export default function ChatPage() {
   // Keep ref in sync so async callbacks always see the current session.
   useEffect(() => { activeIdRef.current = activeId; }, [activeId]);
 
-  // Load messages when active session changes
+  // Persist active session across tab navigation
+  useEffect(() => {
+    try {
+      if (activeId) sessionStorage.setItem("nosknows_active_session", activeId);
+      else sessionStorage.removeItem("nosknows_active_session");
+    } catch {}
+  }, [activeId]);
+
+  // Load messages when active session changes; detect in-flight response after tab switch
   useEffect(() => {
     if (!activeId) { setMessages([]); return; }
-    getMessages(activeId).then(setMessages).catch(console.error);
+    getMessages(activeId).then((msgs) => {
+      setMessages(msgs);
+      const last = msgs[msgs.length - 1];
+      if (last?.role === "user") {
+        pendingPollRef.current = true;
+        setThinkingFor(activeId);
+      }
+    }).catch(console.error);
   }, [activeId]);
+
+  // Poll for the response when we detected a pending one on mount (tab-switch recovery)
+  useEffect(() => {
+    if (!pendingPollRef.current || thinkingFor !== activeId || !activeId) return;
+    const id = activeId;
+    const timer = setInterval(async () => {
+      const msgs = await getMessages(id);
+      const last = msgs[msgs.length - 1];
+      if (last?.role === "assistant") {
+        setMessages(msgs);
+        setThinkingFor(null);
+        pendingPollRef.current = false;
+      }
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [thinkingFor, activeId]);
 
   // Scroll to bottom on new messages or while thinking in active session
   useEffect(() => {
@@ -121,6 +160,7 @@ export default function ChatPage() {
   const handleSend = useCallback(async () => {
     const q = draft.trim();
     if (!q || isThinking) return;
+    pendingPollRef.current = false;
 
     let sid = activeId;
     if (!sid) {

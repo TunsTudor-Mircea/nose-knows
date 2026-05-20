@@ -15,8 +15,9 @@ RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip \
- && pip install --no-cache-dir -r requirements.txt \
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip \
+ && pip install -r requirements.txt \
  && python -m spacy download en_core_web_sm
 
 # ── Runtime ───────────────────────────────────────────────────────────────────

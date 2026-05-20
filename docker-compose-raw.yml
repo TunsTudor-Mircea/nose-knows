@@ -28,9 +28,7 @@ services:
       - "11434:11434"
     volumes:
       - ollama-data:/root/.ollama
-      # Mount the models/ directory so Ollama can read the GGUF file.
-      # Place nosknows-gemma2-2b.Q4_K_M.gguf and Modelfile in ./models/
-      - ./models:/models:ro
+    # #only with gpu, don't use it on cpu because it is very slow
     # deploy:
     #   resources:
     #     reservations:
@@ -45,18 +43,16 @@ services:
       retries: 10
       start_period: 30s
 
-  # ── One-shot model registration (run once after placing GGUF in models/) ──
-  # Usage: docker compose --profile setup run --rm model-init
-  # This registers the fine-tuned NoseKnows model with Ollama from the GGUF.
+  # ── One-shot model pull (run once before docker compose up) ───────────────
+  # Usage: docker compose run --rm model-init
   model-init:
     image: ollama/ollama:latest
     container_name: nosknows-model-init
     profiles: [ "setup" ]
     environment:
       OLLAMA_HOST: http://ollama:11434
-    volumes:
-      - ./models:/models:ro
-    entrypoint: [ "ollama", "create", "nosknows-gemma2", "-f", "/models/Modelfile" ]
+    entrypoint: [ "ollama", "pull" ]
+    command: "${OLLAMA_MODEL:-gemma2:2b}"
     depends_on:
       ollama:
         condition: service_healthy
@@ -71,8 +67,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # Fine-tuned model registered by model-init
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-nosknows-gemma2}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma2:2b}
       OLLAMA_BASE_URL: http://ollama:11434
       CHROMA_DB_PATH: /app/chroma_db
       DATASET_PATH: /app/dataset/fra_cleaned.csv
@@ -138,6 +133,7 @@ services:
 
   # ── One-shot fine-tuning runner ───────────────────────────────────────────
   # Usage: docker compose run --rm finetune
+  #        docker compose run --rm finetune python -m src.finetune.train --max-samples 50
   finetune:
     build:
       context: .

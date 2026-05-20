@@ -162,17 +162,47 @@ def _parse(text: str) -> tuple[str, str | None, str | None, str | None]:
 # Structured fallback pipeline (runs when the LLM skips all tools)
 # ---------------------------------------------------------------------------
 
+_GUARD_REFUSAL = (
+    "I couldn't understand that as a fragrance request. Could you tell me a bit more — "
+    "the mood you want, the occasion, or any notes you love (or want to avoid)?"
+)
+
+_HALLUCINATION_REFUSAL = (
+    "I couldn't find good matches in our catalogue for that one — and I'd rather not "
+    "guess. Could you rephrase with a mood, occasion, or specific notes you'd like?"
+)
+
+
 def _run_structured_pipeline(query: str, filters: dict | None = None) -> dict[str, Any]:
-    """Deterministic pipeline: intent → HyDE → retrieve → recommend → validate."""
+    """Deterministic pipeline: intent → HyDE → retrieve → recommend → validate.
+
+    Routes to a refusal message in two cases:
+      - intent classifies as `guard` (gibberish/off-topic/injection)
+      - validate_response returns FAIL (hallucination detected)
+    """
     steps = []
     filters_json = ""
     if filters:
         import json
         filters_json = json.dumps({k: v for k, v in filters.items() if k != "top_k"})
 
+    class _Step:
+        def __init__(self, tool, tool_input):
+            self.tool = tool
+            self.tool_input = tool_input
+
     # 1. Intent
     intent = classify_intent(query)
     steps.append(("classify_intent", intent))
+
+    # Short-circuit on guard intent — no retrieval, no LLM recommendation
+    if intent == "guard":
+        steps.append(("validate_response", "REFUSE: guard intent classified — query not answerable as fragrance request"))
+        return {
+            "output": _GUARD_REFUSAL,
+            "intermediate_steps": [(_Step(t, i), i) for t, i in steps],
+            "hyde_doc": None,
+        }
 
     # 2. HyDE (skip for note_based)
     hyde_doc = None
@@ -190,18 +220,14 @@ def _run_structured_pipeline(query: str, filters: dict | None = None) -> dict[st
     recommendation = generate_recommendation(query, retrieved)
     steps.append(("generate_recommendation", recommendation))
 
-    # 5. Validate
+    # 5. Validate — on FAIL, refuse instead of returning the unvalidated response
     validation = validate_response(recommendation, retrieved)
     steps.append(("validate_response", validation))
 
-    output = re.sub(r"^PASS:\s*", "", validation, flags=re.IGNORECASE).strip()
-    if output.startswith("FAIL:"):
-        output = recommendation  # fallback to unvalidated if guard fires
-
-    class _Step:
-        def __init__(self, tool, tool_input):
-            self.tool = tool
-            self.tool_input = tool_input
+    if validation.strip().upper().startswith("FAIL"):
+        output = _HALLUCINATION_REFUSAL
+    else:
+        output = re.sub(r"^PASS:\s*", "", validation, flags=re.IGNORECASE).strip()
 
     return {
         "output": output,

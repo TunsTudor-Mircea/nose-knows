@@ -17,6 +17,12 @@ _SAFE_FALLBACK = (
     "Please try describing the mood, occasion, or specific notes you enjoy."
 )
 
+_GUARD_REFUSAL = (
+    "I'm NoseKnows, just your fragrance guide! I can help you find a scent that matches "
+    "your mood, occasion, or favourite notes. Try something like "
+    "\"something warm and cosy for a winter evening\" and I'll find your perfect match."
+)
+
 _MAX_RETRIES = 2
 
 
@@ -71,6 +77,13 @@ def node_regenerate(state: AgentState) -> dict:
     return {"recommendation": recommendation, "retry_count": retry_count}
 
 
+def node_refuse(state: AgentState) -> dict:
+    return {
+        "final_answer": _GUARD_REFUSAL,
+        "messages": [AIMessage(content=_GUARD_REFUSAL)],
+    }
+
+
 def node_finalize(state: AgentState) -> dict:
     validation = state.get("validation", "")
     if re.match(r"^PASS[:\s]", validation, re.IGNORECASE):
@@ -92,7 +105,9 @@ def node_finalize(state: AgentState) -> dict:
 # ---------------------------------------------------------------------------
 
 def route_after_intent(state: AgentState) -> str:
-    """Skip HyDE for note_based and follow_up — both go straight to retrieve."""
+    """Route guard to immediate refusal; skip HyDE for note_based and follow_up."""
+    if state.get("intent") == "guard":
+        return "refuse"
     if state.get("intent") in ("note_based", "follow_up"):
         return "retrieve"
     return "hyde"

@@ -22,6 +22,7 @@ from src.agent.nodes import (
     node_generate_hyde,
     node_recommend,
     node_regenerate,
+    node_refuse,
     node_retrieve,
     node_validate,
     route_after_intent,
@@ -59,6 +60,7 @@ def _build_graph():
     builder = StateGraph(AgentState)
 
     builder.add_node("classify_intent", node_classify_intent)
+    builder.add_node("refuse", node_refuse)
     builder.add_node("generate_hyde", node_generate_hyde)
     builder.add_node("retrieve", node_retrieve)
     builder.add_node("recommend", node_recommend)
@@ -70,8 +72,9 @@ def _build_graph():
     builder.add_conditional_edges(
         "classify_intent",
         route_after_intent,
-        {"hyde": "generate_hyde", "retrieve": "retrieve"},
+        {"refuse": "refuse", "hyde": "generate_hyde", "retrieve": "retrieve"},
     )
+    builder.add_edge("refuse", END)
     builder.add_edge("generate_hyde", "retrieve")
     builder.add_edge("retrieve", "recommend")
     builder.add_edge("recommend", "validate")
